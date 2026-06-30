@@ -1,0 +1,33 @@
+{
+  "users": [
+    {
+      "id": 1,
+      "name": "gustavo",
+      "email": "gustavo20014@hotmail.com.br",
+      "password_hash": "$2a$10$uL.pbK6rjuvMCacx75bfp.jParHVY26IdtVatxOxDsnlf6GeqD17e",
+      "role": "admin",
+      "created_at": "2026-06-30T15:10:14.182Z"
+    }
+  ],
+  "expenses": [
+    {
+      "id": 1,
+      "status": "Pendente",
+      "created_at": "2026-06-30T15:10:52.798Z",
+      "updated_at": null,
+      "user_id": 1,
+      "amount_cents": 15000,
+      "description": "supermercado bh",
+      "expense_date": "2026-06-10",
+      "category": "Serviço",
+      "receipt_filename": "1782832252734-288473817.pdf",
+      "receipt_original_name": "G1696_V00-DES-R00-Planta Geral MatrÃ­cula 246-Layout.pdf"
+    }
+  ],
+  "reportLogs": [],
+  "counters": {
+    "users": 2,
+    "expenses": 2,
+    "reportLogs": 1
+  }
+}
