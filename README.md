@@ -1,56 +1,135 @@
-# Reembolso Clean
+# FinanZero - v16 Front moderno com tema claro/escuro + PostgreSQL + S3
 
-Sistema moderno para lançamento de despesas com login, cadastro, anexos de recibo/comprovante, controle de status, perfil administrador, filtros e envio mensal automático por e-mail.
+Versão com frontend modernizado, tema claro/escuro, login/cadastro, verificação de e-mail por código, recuperação de senha, envio real por EmailJS, reembolsos individuais e em lote, filtro mensal, relatórios, cartões/faturas, **PostgreSQL local** como banco principal e **Amazon S3** para armazenar os comprovantes.
 
-## O que vem pronto
+## O que fica salvo onde
 
-- Cadastro e login de usuários.
-- Perfil de usuário comum e administrador.
-- Usuário comum vê apenas os próprios lançamentos.
-- Administrador vê todos os lançamentos, altera status, exporta CSV e envia relatório.
-- Lançamento de despesa com valor, descrição, data, categoria e anexo opcional em PDF/imagem.
-- Categorias: Cartório, Transporte, Alimentação, Material, Serviço e Outros.
-- Status: Pendente, Enviado para reembolso, Reembolsado e Recusado.
-- Painel mensal com total, quantidade, último lançamento e pendências.
-- Filtro por mês, status e categoria.
-- Prévia do e-mail antes do envio.
-- Exportação CSV para abrir no Excel.
-- Botão para enviar relatório por e-mail manualmente.
-- Envio automático no dia 1º de cada mês, às 08h, com o resumo do mês anterior.
-- Banco SQLite local.
+**PostgreSQL local:**
 
-## Como rodar
+- usuários;
+- contas bancárias;
+- categorias;
+- ganhos;
+- despesas fixas e variáveis;
+- dívidas;
+- economias/investimentos;
+- metas;
+- reembolsos;
+- metadados dos comprovantes, como nome do arquivo, nome original e tipo do arquivo.
 
-### 1. Backend
+**Amazon S3:**
 
-```bash
+- arquivos PDF/PNG/JPG/JPEG dos comprovantes.
+
+O bucket deve ficar privado. A rota do backend `/api/receipts/{arquivo}` gera um link temporário do S3 para abrir o comprovante. A regra de ciclo de vida do bucket deve apagar automaticamente os objetos do prefixo `receipts/` depois de 30 dias.
+
+## Preparar o PostgreSQL
+
+Crie no pgAdmin um banco chamado:
+
+```text
+finanzero
+```
+
+Owner recomendado:
+
+```text
+postgres
+```
+
+## Preparar o S3
+
+Bucket usado nesta versão:
+
+```text
+finanzero-receipts-gustavo-dev
+```
+
+Região:
+
+```text
+sa-east-1
+```
+
+Prefixo usado pelo sistema:
+
+```text
+receipts/
+```
+
+Configuração recomendada do bucket:
+
+- Block all public access: ligado;
+- ACLs desabilitadas;
+- versionamento: desativado;
+- criptografia SSE-S3;
+- Lifecycle rule para expirar objetos em `receipts/` após 30 dias.
+
+Permissões mínimas do usuário IAM:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "FinanZeroListBucket",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket"],
+      "Resource": "arn:aws:s3:::finanzero-receipts-gustavo-dev",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": ["receipts/*"]
+        }
+      }
+    },
+    {
+      "Sid": "FinanZeroReceiptObjects",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::finanzero-receipts-gustavo-dev/receipts/*"
+    }
+  ]
+}
+```
+
+## Como rodar o backend
+
+No PowerShell:
+
+```powershell
 cd backend
-npm install
-cp .env.example .env
-npm run init-db
-npm run dev
+
+$env:EMAILJS_SERVICE_ID="service_xxxxx"
+$env:EMAILJS_TEMPLATE_ID="template_xxxxx"
+$env:EMAILJS_PUBLIC_KEY="sua_public_key"
+$env:EMAILJS_PRIVATE_KEY="sua_private_key"
+
+$env:AWS_ACCESS_KEY_ID="sua_access_key_id"
+$env:AWS_SECRET_ACCESS_KEY="sua_secret_access_key"
+$env:AWS_REGION="sa-east-1"
+$env:AWS_S3_BUCKET="finanzero-receipts-gustavo-dev"
+
+mvn clean spring-boot:run
 ```
 
-Edite o arquivo `.env` com os dados do e-mail SMTP, destinatário do relatório e e-mails administradores.
+Nesta versão, o `application.properties` já está configurado para PostgreSQL local com:
 
-### 2. Administradores
-
-No arquivo `backend/.env`, preencha:
-
-```env
-ADMIN_EMAILS=seu-email@empresa.com,outro-admin@empresa.com
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/finanzero
+spring.datasource.username=postgres
+spring.datasource.password=postgres
 ```
 
-Quem se cadastrar usando um desses e-mails será criado como administrador. Os demais usuários serão comuns.
+Se sua senha do PostgreSQL for diferente, altere o arquivo ou sobrescreva por variável de ambiente.
 
-### 3. Frontend
+## Como rodar o frontend
 
-Em outro terminal:
+Em outro PowerShell:
 
-```bash
+```powershell
 cd frontend
-npm install
-npm run dev
+npm.cmd install
+npm.cmd run dev
 ```
 
 Acesse:
@@ -59,36 +138,73 @@ Acesse:
 http://localhost:5173
 ```
 
-## Configuração do e-mail mensal
+## Como zerar o banco PostgreSQL local
 
-No arquivo `backend/.env`, altere:
+No pgAdmin, abra o Query Tool do banco `finanzero` e execute:
 
-```env
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=465
-SMTP_SECURE=true
-SMTP_USER=seu-email@gmail.com
-SMTP_PASS=sua-senha-de-app
-REPORT_TO=destinatario@empresa.com
-REPORT_FROM="Sistema de Reembolso" <seu-email@gmail.com>
+```sql
+DROP SCHEMA public CASCADE;
+CREATE SCHEMA public;
 ```
 
-Para Gmail, crie uma senha de app na conta Google e use essa senha no `SMTP_PASS`.
+Depois rode o backend novamente. O Hibernate recria as tabelas automaticamente.
 
-O agendamento está em `backend/src/server.js`:
+Para apagar comprovantes de teste do S3 antes da lifecycle rule, entre no bucket e exclua os objetos dentro de `receipts/`, ou use a tela do S3.
 
-```js
-cron.schedule('0 8 1 * *', ...)
+## EmailJS
+
+O projeto usa EmailJS para envio real de e-mails.
+
+Configuração em `application.properties`:
+
+```properties
+app.mail.enabled=true
+app.mail.from-name=FinanZero
+app.mail.reply-to=noreply@finanzero.local
+app.mail.emailjs.service-id=${EMAILJS_SERVICE_ID:}
+app.mail.emailjs.template-id=${EMAILJS_TEMPLATE_ID:}
+app.mail.emailjs.public-key=${EMAILJS_PUBLIC_KEY:}
+app.mail.emailjs.private-key=${EMAILJS_PRIVATE_KEY:}
+app.mail.emailjs.base-url=https://api.emailjs.com/api/v1.0/email/send
 ```
 
-Isso significa: todo dia 1º, às 08h, no fuso de São Paulo.
+Template recomendado no EmailJS:
 
-## Observações para produção
+```text
+Para: {{to_email}}
+Assunto: {{subject}}
+Corpo do e-mail: {{{message_html}}}
+```
 
-Este é um MVP funcional para rodar rápido. Para uso definitivo, recomendo trocar SQLite por PostgreSQL, subir comprovantes em um storage próprio, como S3, Cloudinary ou Supabase Storage, e publicar o frontend no Vercel e o backend no Render/Railway.
+Use um template genérico com `{{{message_html}}}` no corpo. As três chaves são necessárias para o EmailJS renderizar HTML, como o botão/link clicável do comprovante. O backend também envia `message` para compatibilidade, mas o botão do comprovante depende de `message_html`.
 
-## Exportação por e-mail
+## Reembolsos e comprovantes
 
-Na tela **Filtros e relatório**, escolha o mês, status e categoria desejados, preencha o campo **E-mail para exportar relatório** e clique em **Exportar e enviar por e-mail**.
+Despesas fixas e variáveis podem ser marcadas como reembolsáveis.
 
-O sistema envia o relatório em HTML no corpo do e-mail e anexa também um CSV para abrir no Excel. Usuário comum exporta apenas os próprios lançamentos. Administrador exporta todos os lançamentos filtrados.
+Fluxo:
+
+1. Ao cadastrar despesa, marque `Gasto reembolsável`.
+2. Informe empresa e e-mail de destino.
+3. Opcionalmente, anexe um comprovante em PDF, PNG, JPG ou JPEG.
+4. O backend envia o comprovante para `s3://finanzero-receipts-gustavo-dev/receipts/`.
+5. O PostgreSQL salva os metadados do comprovante na transação.
+6. A tela `Reembolsos` lista esses gastos.
+7. Você pode enviar um reembolso individualmente ou selecionar vários e usar `Enviar selecionados`.
+8. O e-mail inclui links para abrir os comprovantes.
+9. Ao clicar no link, o backend gera um link temporário do S3.
+10. Quando o valor cair na conta, escolha a conta e clique em `Marcar recebido`.
+11. O sistema cria automaticamente uma entrada do tipo ganho/reembolso e soma no saldo da conta.
+
+Localmente, os links dos comprovantes enviados por e-mail dependem do backend local estar rodando. Em produção, troque `app.public-base-url` pelo domínio público do backend.
+
+## Regras financeiras
+
+- Ganhos somam no saldo da conta.
+- Pix e Débito reduzem saldo.
+- Crédito reduz limite disponível do cartão.
+- Despesa fixa só impacta saldo/limite quando marcada como paga.
+- Dívidas controlam pagamento por parcela e não aceitam pagamento maior que o restante.
+- Economias reduzem saldo da conta de origem e podem ser atualizadas.
+- Metas permitem atualizar o valor atual.
+- Categorias possuem seleção maior de ícones.
