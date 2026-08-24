@@ -1,6 +1,6 @@
 # FinanZero - v16 Front moderno com tema claro/escuro + PostgreSQL + S3
 
-Versão com frontend modernizado, tema claro/escuro, login/cadastro, verificação de e-mail por código, recuperação de senha, envio real por EmailJS, reembolsos individuais e em lote, filtro mensal, relatórios, cartões/faturas, **PostgreSQL local** como banco principal e **Amazon S3** para armazenar os comprovantes.
+Tema claro/escuro, login/cadastro, verificação de e-mail por código, recuperação de senha, envio real por EmailJS, reembolsos individuais e em lote, filtro mensal, relatórios, cartões/faturas, **PostgreSQL local** como banco principal e **Amazon S3** para armazenar os comprovantes.
 
 ## O que fica salvo onde
 
