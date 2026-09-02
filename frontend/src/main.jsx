@@ -33,12 +33,30 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
 function receiptUrl(fileName) { return `${API_BASE}/receipts/${fileName}`; }
 
 
+const themes = [
+  { id: 'premium', label: 'Premium', short: 'Pro', icon: '✦' },
+  { id: 'light', label: 'Branco', short: 'Claro', icon: Sun },
+  { id: 'dark', label: 'Preto', short: 'Preto', icon: Moon }
+];
+
 function ThemeToggle({ theme, setTheme }) {
-  const isDark = theme === 'dark';
-  return <button type="button" className="themeToggle" onClick={() => setTheme(isDark ? 'light' : 'dark')} title={isDark ? 'Ativar tema claro' : 'Ativar tema escuro'}>
-    {isDark ? <Sun size={16} /> : <Moon size={16} />}
-    <span>{isDark ? 'Claro' : 'Escuro'}</span>
-  </button>;
+  const current = themes.some(t => t.id === theme) ? theme : 'premium';
+  return <div className="themeSwitcher" title="Escolher tema">
+    {themes.map(option => {
+      const Icon = option.icon;
+      const active = current === option.id;
+      return <button
+        key={option.id}
+        type="button"
+        className={active ? 'active' : ''}
+        onClick={() => setTheme(option.id)}
+        aria-label={`Ativar tema ${option.label}`}
+      >
+        {typeof Icon === 'string' ? <span className="themeGlyph">{Icon}</span> : <Icon size={15} />}
+        <span>{option.short}</span>
+      </button>;
+    })}
+  </div>;
 }
 
 function progress(value, total) {
@@ -551,16 +569,41 @@ function DataTable({ type, items, remove, updateStatus, updatePaymentMethod }) {
 }
 
 function DebtScreen({ items, accounts, reload }) {
-  return <CrudScreen title="Dívidas" path="debts" fields={[[ 'name', 'Descrição da dívida' ], [ 'creditor', 'Credor' ], [ 'totalAmount', 'Valor total da dívida', 'number' ], [ 'paidAmount', 'Valor já pago', 'number' ], [ 'totalInstallments', 'Número de parcelas totais', 'number' ], [ 'monthlyPayment', 'Valor de cada parcela', 'number' ], [ 'nextDueDate', 'Próximo vencimento', 'date' ]]} reload={reload} items={items} headers={[ 'Dívida', 'Credor', 'Total', 'Pago', 'Restante', 'Parcelas', 'Parcela', 'Status', 'Progresso', 'Pagar parcela', '' ]} render={d => <DebtRow key={d.id} debt={d} accounts={accounts} reload={reload} />} />;
+  return <CrudScreen
+    title="Dívidas"
+    path="debts"
+    fields={[[ 'name', 'Descrição da dívida' ], [ 'creditor', 'Credor' ], [ 'accountId', 'Conta vinculada', 'accountSelect' ], [ 'totalAmount', 'Valor total da dívida', 'number' ], [ 'paidAmount', 'Valor já pago', 'number' ], [ 'totalInstallments', 'Número de parcelas totais', 'number' ], [ 'monthlyPayment', 'Valor de cada parcela', 'number' ], [ 'nextDueDate', 'Próximo vencimento', 'date' ]]}
+    accounts={accounts}
+    reload={reload}
+    items={items}
+    headers={[ 'Dívida', 'Credor', 'Total', 'Pago', 'Restante', 'Parcelas', 'Parcela', 'Status', 'Progresso', 'Pagar parcela', '' ]}
+    render={d => <DebtRow key={d.id} debt={d} accounts={accounts} reload={reload} />}
+  />;
 }
 
 function DebtRow({ debt, accounts, reload }) {
   const remaining = remainingDebt(debt);
   const suggestedPayment = Math.min(Number(debt.monthlyPayment || 0), remaining);
-  const [accountId, setAccountId] = useState(accounts[0]?.id || '');
+  const [accountId, setAccountId] = useState(debt.account?.id || accounts[0]?.id || '');
   const [amount, setAmount] = useState(suggestedPayment || 0);
   const percent = progress(debt.paidAmount, debt.totalAmount);
   const completed = percent >= 100 || remaining <= 0;
+
+  async function updateDebtAccount(nextAccountId) {
+    setAccountId(nextAccountId);
+    await api.put(`/debts/${debt.id}`, {
+      name: debt.name,
+      creditor: debt.creditor,
+      totalAmount: Number(debt.totalAmount || 0),
+      paidAmount: Number(debt.paidAmount || 0),
+      totalInstallments: Number(debt.totalInstallments || 1),
+      monthlyPayment: Number(debt.monthlyPayment || 0),
+      nextDueDate: debt.nextDueDate,
+      status: debt.status,
+      account: nextAccountId ? { id: Number(nextAccountId) } : null
+    });
+    reload();
+  }
 
   async function payDebt() {
     if (completed) return;
@@ -572,7 +615,7 @@ function DebtRow({ debt, accounts, reload }) {
     reload();
   }
 
-  return <tr><td>{debt.name}</td><td>{debt.creditor}</td><td><b>{BRL.format(debt.totalAmount || 0)}</b></td><td>{BRL.format(debt.paidAmount || 0)}</td><td>{BRL.format(remaining)}</td><td>{debt.totalInstallments || 1}x</td><td>{BRL.format(debt.monthlyPayment || 0)}</td><td><Status status={getDebtStatus(debt)} /></td><td><Progress label={completed ? '🎉 Dívida quitada!' : ''} percent={percent} sub={`${BRL.format(debt.paidAmount || 0)} de ${BRL.format(debt.totalAmount || 0)}`} /></td><td>{completed ? <b className="good">Quitada</b> : <div className="payDebt"><select value={accountId} onChange={e => setAccountId(e.target.value)}>{accounts.map(a => <option value={a.id} key={a.id}>{a.name}</option>)}</select><input type="number" step="0.01" min="0.01" max={remaining} value={amount} onChange={e => setAmount(e.target.value)} /><button onClick={payDebt}>{Number(amount || 0) >= remaining ? 'Pagar restante' : 'Pagar'}</button></div>}</td><td><Delete path="debts" id={debt.id} reload={reload} /></td></tr>;
+  return <tr><td>{debt.name}</td><td>{debt.creditor}</td><td><b>{BRL.format(debt.totalAmount || 0)}</b></td><td>{BRL.format(debt.paidAmount || 0)}</td><td>{BRL.format(remaining)}</td><td>{debt.totalInstallments || 1}x</td><td>{BRL.format(debt.monthlyPayment || 0)}</td><td><Status status={getDebtStatus(debt)} /></td><td><Progress label={completed ? '🎉 Dívida quitada!' : ''} percent={percent} sub={`${BRL.format(debt.paidAmount || 0)} de ${BRL.format(debt.totalAmount || 0)}`} /></td><td>{completed ? <b className="good">Quitada</b> : <div className="payDebt"><select value={accountId} onChange={e => updateDebtAccount(e.target.value)}>{accounts.map(a => <option value={a.id} key={a.id}>{a.name}</option>)}</select><input type="number" step="0.01" min="0.01" max={remaining} value={amount} onChange={e => setAmount(e.target.value)} /><button onClick={payDebt}>{Number(amount || 0) >= remaining ? 'Pagar restante' : 'Pagar'}</button></div>}</td><td><Delete path="debts" id={debt.id} reload={reload} /></td></tr>;
 }
 
 function GoalScreen({ items, reload }) {
@@ -639,6 +682,11 @@ function CrudScreen({ title, path, fields, items, render, reload, headers, accou
     if (path === 'categories' && !body.color) body.color = '#a3e635';
     if (path === 'accounts' && body.cardLimit === undefined) body.cardLimit = 0;
     if (path === 'investments' && !body.accountId) return alert('Selecione a conta de origem da economia/investimento.');
+    if (path === 'debts') {
+      if (!body.accountId) return alert('Selecione a conta vinculada à dívida.');
+      body.account = { id: Number(body.accountId) };
+      delete body.accountId;
+    }
     await api.post(`/${path}`, body);
     setForm({}); setOpen(false); reload();
   }
@@ -646,7 +694,7 @@ function CrudScreen({ title, path, fields, items, render, reload, headers, accou
     if (type === 'select') return <select key={name} value={form[name] || ''} onChange={e => setForm({ ...form, [name]: e.target.value })}><option value="">Tipo</option><option value="INCOME">Ganho</option><option value="FIXED_EXPENSE">Despesa fixa</option><option value="VARIABLE_EXPENSE">Despesa variável</option></select>;
     if (type === 'iconSelect') return <select key={name} value={form[name] || '🎯'} onChange={e => setForm({ ...form, [name]: e.target.value })}><option value="">Selecione um ícone</option>{goalIcons.map(icon => <option key={icon} value={icon}>{icon}</option>)}</select>;
     if (type === 'categoryIconSelect') return <select key={name} value={form[name] || '💰'} onChange={e => setForm({ ...form, [name]: e.target.value })}><option value="">Selecione um ícone</option>{categoryIcons.map(icon => <option key={icon} value={icon}>{icon}</option>)}</select>;
-    if (type === 'accountSelect') return <select key={name} value={form[name] || ''} onChange={e => setForm({ ...form, [name]: e.target.value })} required><option value="">Conta de origem</option>{accounts.map(a => <option value={a.id} key={a.id}>{a.name} — {BRL.format(a.balance || 0)}</option>)}</select>;
+    if (type === 'accountSelect') return <select key={name} value={form[name] || ''} onChange={e => setForm({ ...form, [name]: e.target.value })} required><option value="">{path === 'debts' ? 'Conta vinculada' : 'Conta de origem'}</option>{accounts.map(a => <option value={a.id} key={a.id}>{a.name} — {BRL.format(a.balance || 0)}</option>)}</select>;
     if (type === 'color') return <label className="field" key={name}><span>{label}</span><input type="color" value={form[name] || '#a3e635'} onChange={e => setForm({ ...form, [name]: e.target.value })} /></label>;
     return <input key={name} type={type || 'text'} step="0.01" placeholder={label} value={form[name] || ''} onChange={e => setForm({ ...form, [name]: e.target.value })} required={name === 'name'} />;
   })}<button>Salvar</button></form>}<table>{headers && <thead><tr>{headers.map((header, i) => <th key={`${header}-${i}`}>{header}</th>)}</tr></thead>}<tbody>{items.map(render)}</tbody></table></section>;
@@ -718,11 +766,12 @@ function Reports({ state, period, setPeriod }) {
 
 
 function Root() {
-  const [theme, setTheme] = useState(() => localStorage.getItem('finanzero_theme') || 'dark');
+  const [theme, setTheme] = useState(() => localStorage.getItem('finanzero_theme') || 'premium');
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    localStorage.setItem('finanzero_theme', theme);
+    const normalizedTheme = themes.some(t => t.id === theme) ? theme : 'premium';
+    document.documentElement.dataset.theme = normalizedTheme;
+    localStorage.setItem('finanzero_theme', normalizedTheme);
   }, [theme]);
 
   return <App theme={theme} setTheme={setTheme} />;

@@ -467,3 +467,10 @@ Gustao Ignácio
 
 Desenvolvido por Gustavo Ignácio / keijizn.
 s
+
+
+## Atualização v19
+
+- Mantida a correção da conta vinculada às dívidas.
+- Recolocados os 3 temas do frontend: Premium dourado, Branco e Preto.
+- Mantidas as animações e o visual moderno da v17.

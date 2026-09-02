@@ -47,6 +47,9 @@ public class Debt {
     @Enumerated(EnumType.STRING)
     private PaymentStatus status = PaymentStatus.PENDING;
 
+    @ManyToOne
+    private WalletAccount account;
+
     @JsonIgnore
     @ManyToOne
     private AppUser owner;

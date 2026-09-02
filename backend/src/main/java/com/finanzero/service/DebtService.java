@@ -33,6 +33,7 @@ public class DebtService {
     public Debt create(Debt debt) {
         AppUser owner = currentUserService.requiredUser();
         debt.setOwner(owner);
+        attachAccountIfPresent(debt, owner);
         normalize(debt);
         return debtRepository.save(debt);
     }
@@ -43,6 +44,7 @@ public class DebtService {
         Debt current = debtRepository.findByIdAndOwner(id, owner).orElseThrow(() -> new IllegalArgumentException("Dívida não encontrada"));
         debt.setId(current.getId());
         debt.setOwner(owner);
+        attachAccountIfPresent(debt, owner);
         normalize(debt);
         return debtRepository.save(debt);
     }
@@ -65,12 +67,30 @@ public class DebtService {
             return debtRepository.save(debt);
         }
         if (amount.compareTo(remaining) > 0) throw new IllegalArgumentException("O valor informado é maior que o restante da dívida.");
-        WalletAccount account = accountRepository.findByIdAndOwner(request.accountId(), owner).orElseThrow(() -> new IllegalArgumentException("Conta não encontrada"));
+        Long selectedAccountId = request.accountId();
+        if (selectedAccountId == null && debt.getAccount() != null) {
+            selectedAccountId = debt.getAccount().getId();
+        }
+        if (selectedAccountId == null) {
+            throw new IllegalArgumentException("Selecione a conta usada para pagar a parcela.");
+        }
+        WalletAccount account = accountRepository.findByIdAndOwner(selectedAccountId, owner).orElseThrow(() -> new IllegalArgumentException("Conta não encontrada"));
+        debt.setAccount(account);
         account.setBalance(nvl(account.getBalance()).subtract(amount));
         accountRepository.save(account);
         debt.setPaidAmount(nvl(debt.getPaidAmount()).add(amount));
         normalize(debt);
         return debtRepository.save(debt);
+    }
+
+    private void attachAccountIfPresent(Debt debt, AppUser owner) {
+        if (debt.getAccount() == null || debt.getAccount().getId() == null) {
+            debt.setAccount(null);
+            return;
+        }
+        WalletAccount account = accountRepository.findByIdAndOwner(debt.getAccount().getId(), owner)
+                .orElseThrow(() -> new IllegalArgumentException("Conta não encontrada"));
+        debt.setAccount(account);
     }
 
     private void normalize(Debt debt) {
