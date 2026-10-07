@@ -1,6 +1,6 @@
 # Correções e aplicativo móvel
 
-Implementação local em 6 de outubro de 2026. Nenhuma alteração foi publicada no Render/Vercel nem aplicada ao banco de produção.
+Implementação iniciada em 6 de outubro de 2026. Em 7 de outubro, o backend do commit `6cb2495` foi publicado manualmente no Render e iniciou com sucesso, conforme logs fornecidos pelo usuário. O frontend/PWA está preparado para publicação na Vercel.
 
 ## O que mudou
 
@@ -47,7 +47,9 @@ A inspeção encontrou uma diferença do esquema implantado: `debt.account_id` n
 
 Validação na cópia Neon (PostgreSQL 18.6): baseline V1, aplicação de V2/V3, validação Flyway e inicialização completa do backend local com `ddl-auto=validate` e baseline desativado. A comparação por hashes de todas as colunas preexistentes nas oito tabelas confirmou preservação dos registros, exceto `app_user.auth_token`, cuja invalidação prevista foi verificada separadamente. E-mail e bucket S3 foram desativados no processo local. A primeira tentativa do verificador sem servidor web falhou por ausência de contexto HTTP; a execução em servidor local temporário concluiu com sucesso.
 
-O Flyway 10.10.0 incluído pelo Spring Boot atual emitiu aviso de que PostgreSQL 18.6 é mais recente que sua faixa testada. As migrações e a validação passaram nesta cópia; a atualização das dependências para suporte oficialmente testado continua pendente. O backup de produção e a publicação no Render/Vercel ainda não foram realizados. A branch de teste expira em 14 de outubro de 2026.
+O Flyway 10.10.0 incluído pelo Spring Boot atual emitiu aviso de que PostgreSQL 18.6 é mais recente que sua faixa testada. As migrações e a validação passaram nesta cópia; a atualização das dependências para suporte oficialmente testado continua pendente. O usuário confirmou a criação da branch de recuperação `backup-pre-atualizacao`, a partir de `production`, com expiração de sete dias. A branch de teste expira em 14 de outubro de 2026.
+
+Após o deploy do backend no Render, a verificação pública retornou HTTP 200 para o preflight CORS da origem `https://expense-flow-ashy.vercel.app` e HTTP 401 para consulta de contas sem autenticação. Isso confirma disponibilidade e configuração CORS; operações com login em produção e instalação nos celulares ainda precisam ser validadas. Remover a configuração temporária `SPRING_FLYWAY_BASELINE_ON_MIGRATE=true` após o primeiro deploy. O frontend foi novamente validado com oito testes e build antes de preparar seu commit para publicação.
 
 ## Testes
 

@@ -1,9 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BarChart, Bar, PieChart, Pie, Cell, ResponsiveContainer, Tooltip, LineChart, Line } from 'recharts';
+const ExpensePie = React.lazy(() => import('./Charts.jsx').then(module => ({ default: module.ExpensePie })));
+const IncomeExpenseChart = React.lazy(() => import('./Charts.jsx').then(module => ({ default: module.IncomeExpenseChart })));
+const AnnualChart = React.lazy(() => import('./Charts.jsx').then(module => ({ default: module.AnnualChart })));
 import { LayoutDashboard, TrendingUp, TrendingDown, WalletCards, Target, PiggyBank, Tags, Plus, Trash2, RefreshCw, CreditCard, Mail, LogOut, ReceiptText, Sun, Moon } from 'lucide-react';
 import { api } from './services/api.js';
 import './styles.css';
+import { localDate, emptyState, csvCell } from './utils.js';
+import { MobileApp, registerAppWorker } from './MobileApp.jsx';
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const today = new Date();
@@ -30,7 +34,14 @@ const categoryIcons = ['💰', '💵', '🏦', '🧾', '🏠', '⚡', '💧', '�
 const paymentMethods = ['Pix', 'Débito', 'Crédito'];
 const reimbursementStatuses = { TO_SEND: 'A enviar', SENT: 'Enviado', REIMBURSED: 'Reembolsado', REJECTED: 'Recusado', NOT_REIMBURSABLE: 'Não reembolsável' };
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
-function receiptUrl(fileName) { return `${API_BASE}/receipts/${fileName}`; }
+async function openReceipt(fileName) {
+  const tab = window.open('about:blank', '_blank');
+  if (tab) tab.opener = null;
+  try {
+    const { url } = await api.get('/receipts/' + encodeURIComponent(fileName));
+    if (tab) tab.location.replace(url); else window.location.assign(url);
+  } catch (error) { tab?.close(); }
+}
 
 
 const themes = [
@@ -159,6 +170,7 @@ function AuthScreen({ onAuth, theme, setTheme }) {
       if (mode === 'verify') {
         const res = await api.post('/auth/verify', { email: form.email, code: form.code });
         if (res.token) onAuth(res);
+        else { setMessage(res.message); setMode('login'); }
         return;
       }
       if (mode === 'forgot') {
@@ -210,15 +222,15 @@ function AuthScreen({ onAuth, theme, setTheme }) {
     <section className="authCard">
       <div className="brand authBrand"><div className="logo">〽</div><div><strong>FinanZero</strong><span>Seu controle financeiro pessoal</span></div></div>
       <h1>{title}</h1>
-      <p className="muted">Use uma conta pessoal. O sistema não cria área ADMIN porque, por enquanto, cada usuário gerencia apenas os próprios dados.</p>
+      <p className="muted">Entre para acompanhar suas contas, despesas e metas em um só lugar.</p>
       {error && <div className="alert">{error}</div>}
       {message && <div className="successBox">{message}{debugCode && <><br /><b>Código para teste local: {debugCode}</b></>}</div>}
       <form className="authForm" onSubmit={submit}>
         {mode === 'register' && <input placeholder="Nome" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />}
         <input type="email" placeholder="E-mail" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} required />
-        {(mode === 'login' || mode === 'register') && <input type="password" placeholder="Senha" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required />}
+        {(mode === 'login' || mode === 'register') && <input type="password" minLength={mode === 'register' ? 8 : undefined} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} placeholder="Senha" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required />}
         {(mode === 'verify' || mode === 'reset') && <input placeholder="Código recebido por e-mail" value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} required />}
-        {mode === 'reset' && <input type="password" placeholder="Nova senha" value={form.newPassword} onChange={e => setForm({ ...form, newPassword: e.target.value })} required />}
+        {mode === 'reset' && <input type="password" minLength={8} autoComplete="new-password" placeholder="Nova senha" value={form.newPassword} onChange={e => setForm({ ...form, newPassword: e.target.value })} required />}
         <button>{mode === 'login' ? 'Entrar' : mode === 'register' ? 'Cadastrar' : mode === 'verify' ? 'Verificar' : mode === 'forgot' ? 'Enviar código' : 'Redefinir senha'}</button>
       </form>
       <div className="authLinks">
@@ -228,7 +240,7 @@ function AuthScreen({ onAuth, theme, setTheme }) {
         {mode === 'login' && <button className="ghost" onClick={() => switchMode('forgot')}>Esqueci minha senha</button>}
         {mode === 'forgot' && <button className="ghost" onClick={() => switchMode('reset')}>Já tenho o código</button>}
       </div>
-      <p className="demoHint">Conta demo: <b>demo@finanzero.local</b> / <b>123456</b></p>
+      <MobileApp />
     </section>
   </div>;
 }
@@ -292,10 +304,10 @@ function ReimbursementScreen({ items, accounts, reload }) {
       <button type="button" onClick={sendSelected}>Enviar selecionados</button>
     </div>}
 
-    <table>
+    <div className="tableWrap"><table>
       <thead><tr><th><input type="checkbox" checked={allOpenSelected} onChange={toggleAllOpen} /></th><th>Gasto</th><th>Data</th><th>Empresa</th><th>E-mail</th><th>Valor</th><th>Comprovante</th><th>Status</th><th>Receber em</th><th>Ações</th></tr></thead>
       <tbody>{items.map(item => <ReimbursementRow key={item.id} item={item} accounts={accounts} reload={reload} selected={selectedIds.includes(item.id)} toggle={() => toggleItem(item.id)} />)}</tbody>
-    </table>
+    </table></div>
     {items.length === 0 && <p className="muted emptyState">Nenhum gasto reembolsável cadastrado. Marque uma despesa como “Gasto reembolsável” ao criar o lançamento.</p>}
   </section>;
 }
@@ -326,7 +338,7 @@ function ReimbursementRow({ item, accounts, reload, selected, toggle }) {
 
   async function markReceived() {
     if (!accountId) return alert('Selecione a conta em que o reembolso entrou.');
-    await api.post(`/reimbursements/${item.id}/received`, { accountId: Number(accountId), receivedAt: new Date().toISOString().slice(0, 10) });
+    await api.post(`/reimbursements/${item.id}/received`, { accountId: Number(accountId), receivedAt: localDate() });
     reload();
   }
 
@@ -343,7 +355,7 @@ function ReimbursementRow({ item, accounts, reload, selected, toggle }) {
     <td>{item.reimbursementCompany || '-'}</td>
     <td>{item.reimbursementEmail || '-'}</td>
     <td><b>{BRL.format(item.amount || 0)}</b></td>
-    <td>{item.receiptFileName ? <a className="receiptLink" href={receiptUrl(item.receiptFileName)} target="_blank" rel="noreferrer">Ver comprovante</a> : '-'}</td>
+    <td>{item.receiptFileName ? <button className="receiptLink" onClick={() => openReceipt(item.receiptFileName)}>Ver comprovante</button> : '-'}</td>
     <td><span className={`status ${item.reimbursementStatus}`}>{reimbursementStatuses[item.reimbursementStatus] || item.reimbursementStatus}</span></td>
     <td>{closed ? '-' : <select className="statusSelect" value={accountId} onChange={e => setAccountId(e.target.value)}><option value="">Conta</option>{accounts.map(a => <option value={a.id} key={a.id}>{a.name}</option>)}</select>}</td>
     <td><div className="stackedControls">
@@ -357,64 +369,98 @@ function ReimbursementRow({ item, accounts, reload, selected, toggle }) {
 
 function App({ theme, setTheme }) {
   const [session, setSession] = useState(() => {
-    const token = localStorage.getItem('finanzero_token');
-    const user = localStorage.getItem('finanzero_user');
+    const token = sessionStorage.getItem('finanzero_token');
+    const user = sessionStorage.getItem('finanzero_user');
     if (!token || !user) return null;
     try {
       return JSON.parse(user);
     } catch {
-      localStorage.removeItem('finanzero_user');
-      localStorage.removeItem('finanzero_token');
+      sessionStorage.removeItem('finanzero_user');
+      sessionStorage.removeItem('finanzero_token');
       return null;
     }
   });
-  const [screen, setScreen] = useState('Dashboard');
-  const [state, setState] = useState({ summary: null, transactions: [], categories: [], accounts: [], debts: [], goals: [], investments: [], reimbursements: [] });
+  const [screen, setScreen] = useState(() => new URLSearchParams(location.search).get('action') === 'expense' ? 'Despesas Variáveis' : 'Dashboard');
+  const [quickEntry, setQuickEntry] = useState(() => new URLSearchParams(location.search).get('action') === 'expense' ? 1 : 0);
+  const loadSequence = useRef(0);
+  const loadController = useRef(null);
+  const [state, setState] = useState(emptyState);
   const [period, setPeriod] = useState({ month, year });
   const [loading, setLoading] = useState(!!session);
   const [error, setError] = useState('');
 
   async function load() {
+    const sequence = ++loadSequence.current;
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
+    const get = path => api.get(path, { signal: controller.signal });
     setLoading(true);
     setError('');
     try {
       const [summary, transactions, categories, accounts, debts, goals, investments, reimbursements] = await Promise.all([
-        api.get(`/dashboard?month=${period.month}&year=${period.year}`),
-        api.get('/transactions'),
-        api.get('/categories'),
-        api.get('/accounts'),
-        api.get('/debts'),
-        api.get('/goals'),
-        api.get('/investments'),
-        api.get('/reimbursements')
+        get(`/dashboard?month=${period.month}&year=${period.year}`),
+        get('/transactions'),
+        get('/categories'),
+        get('/accounts'),
+        get('/debts'),
+        get('/goals'),
+        get('/investments'),
+        get('/reimbursements')
       ]);
+      if (sequence !== loadSequence.current) return;
       setState({ summary, transactions, categories, accounts, debts, goals, investments, reimbursements });
     } catch (e) {
+      if (sequence !== loadSequence.current || e.name === 'AbortError') return;
       setError(e.message || 'Não consegui conectar no backend. Confirme se o Spring está rodando na porta 8080.');
     } finally {
-      setLoading(false);
+      if (sequence === loadSequence.current) setLoading(false);
     }
   }
 
   useEffect(() => {
     if (session) load();
+    return () => { ++loadSequence.current; loadController.current?.abort(); };
   }, [session?.token, period.month, period.year]);
 
   function handleAuth(auth) {
+    ++loadSequence.current;
+    loadController.current?.abort();
+    setState(emptyState());
+    setLoading(true);
+    setError('');
     api.setAuthToken(auth.token);
     const user = { token: auth.token, name: auth.name, email: auth.email, role: auth.role };
-    localStorage.setItem('finanzero_token', auth.token);
-    localStorage.setItem('finanzero_user', JSON.stringify(user));
+    sessionStorage.setItem('finanzero_token', auth.token);
+    sessionStorage.setItem('finanzero_user', JSON.stringify(user));
     setSession(user);
   }
 
-  function logout() {
+  function clearSession() {
+    ++loadSequence.current;
+    loadController.current?.abort();
+    setState(emptyState());
+    setLoading(false);
+    setError('');
     api.setAuthToken('');
-    localStorage.removeItem('finanzero_token');
-    localStorage.removeItem('finanzero_user');
+    sessionStorage.removeItem('finanzero_token');
+    sessionStorage.removeItem('finanzero_user');
     setSession(null);
     setScreen('Dashboard');
   }
+
+  async function logout() {
+    try { await api.post('/auth/logout', {}); clearSession(); }
+    catch (error) { if (error.status === 401) clearSession(); }
+  }
+
+  useEffect(() => {
+    const expired = () => clearSession();
+    const failed = event => setError(event.detail);
+    window.addEventListener('session-expired', expired);
+    window.addEventListener('api-error', failed);
+    return () => { window.removeEventListener('session-expired', expired); window.removeEventListener('api-error', failed); };
+  }, []);
 
   if (!session) return <AuthScreen onAuth={handleAuth} theme={theme} setTheme={setTheme} />;
 
@@ -431,18 +477,20 @@ function App({ theme, setTheme }) {
       </aside>
       <main>
         <header className="topbar"><div><p className="eyebrow">FinanZero</p><h1>{screen}</h1></div><div className="topActions"><ThemeToggle theme={theme} setTheme={setTheme} /><button className="ghost" onClick={load}><RefreshCw size={16} /> Atualizar</button><button className="ghost" onClick={logout}><LogOut size={16} /> Sair</button></div></header>
-        {error && <div className="alert">{error}</div>}
+        <MobileApp />
+        {error && <div className="alert" role="alert">{error}</div>}
+        <button className="quickExpense" onClick={() => { setQuickEntry(value => value + 1); setScreen('Despesas Variáveis'); }}><Plus size={20} /> Nova despesa</button>
         {loading ? <div className="loading">Carregando dados...</div> : <>
           {screen === 'Dashboard' && <Dashboard state={state} setScreen={setScreen} period={period} setPeriod={setPeriod} />}
           {screen === 'Ganhos' && <TransactionScreen title="Ganhos" type="INCOME" items={income} categories={state.categories} accounts={state.accounts} reload={load} />}
           {screen === 'Despesas Fixas' && <TransactionScreen title="Despesas Fixas" type="FIXED_EXPENSE" items={fixed} categories={state.categories} accounts={state.accounts} reload={load} />}
-          {screen === 'Despesas Variáveis' && <TransactionScreen title="Despesas Variáveis" type="VARIABLE_EXPENSE" items={variable} categories={state.categories} accounts={state.accounts} reload={load} />}
+          {screen === 'Despesas Variáveis' && <TransactionScreen openRequest={quickEntry} onConsumeOpen={() => setQuickEntry(0)} title="Despesas Variáveis" type="VARIABLE_EXPENSE" items={variable} categories={state.categories} accounts={state.accounts} reload={load} />}
           {screen === 'Dívidas' && <DebtScreen items={state.debts} accounts={state.accounts} reload={load} />}
           {screen === 'Economias' && <InvestmentScreen items={state.investments} accounts={state.accounts} reload={load} />}
           {screen === 'Metas' && <GoalScreen items={state.goals} reload={load} />}
           {screen === 'Categorias' && <CategoryScreen items={state.categories} reload={load} />}
           {screen === 'Relatórios' && <Reports state={state} period={period} setPeriod={setPeriod} />}
-          {screen === 'Cartões/Faturas' && <CardInvoicesScreen transactions={state.transactions} accounts={state.accounts} period={period} setPeriod={setPeriod} />}
+          {screen === 'Cartões/Faturas' && <CardInvoicesScreen reload={load} transactions={state.transactions} accounts={state.accounts} period={period} setPeriod={setPeriod} />}
           {screen === 'Reembolsos' && <ReimbursementScreen items={state.reimbursements} accounts={state.accounts} reload={load} />}
           {screen === 'Contas Bancárias' && <BankAccountsScreen accounts={state.accounts} reload={load} />}
         </>}
@@ -465,8 +513,8 @@ function Dashboard({ state, setScreen, period, setPeriod }) {
     <Metric title="Economias" value={BRL.format(s.investments || 0)} tone="cyan" />
     <Metric title="Saldo nas contas" value={BRL.format(s.availableBalance || 0)} tone="lime" />
 
-    <section className="card span2"><h2>Gastos por categoria</h2><div className="chartrow"><ResponsiveContainer width="50%" height={220}><PieChart><Pie data={pieData} dataKey="value" innerRadius={55} outerRadius={90}>{pieData.map((e, i) => <Cell key={i} fill={e.color || '#a3e635'} />)}</Pie><Tooltip formatter={v => BRL.format(v)} /></PieChart></ResponsiveContainer><div className="legend">{(s.categoryUsage || []).slice(0, 6).map(c => <p key={c.category}><span style={{ background: c.color }} /> {c.category}<b>{BRL.format(c.spent || 0)}</b></p>)}</div></div></section>
-    <section className="card span2"><h2>Entradas vs Saídas</h2><ResponsiveContainer width="100%" height={240}><BarChart data={chartData}><Bar dataKey="entradas" radius={[8, 8, 0, 0]} /><Bar dataKey="saidas" radius={[8, 8, 0, 0]} /><Tooltip formatter={v => BRL.format(v)} /></BarChart></ResponsiveContainer></section>
+    <section className="card span2"><h2>Gastos por categoria</h2><div className="chartrow"><div className="pieFrame"><React.Suspense fallback={<p>Carregando gráfico…</p>}><ExpensePie data={pieData} /></React.Suspense></div><div className="legend">{(s.categoryUsage || []).slice(0, 6).map(c => <p key={c.category}><span style={{ background: c.color }} /> {c.category}<b>{BRL.format(c.spent || 0)}</b></p>)}</div></div></section>
+    <section className="card span2"><h2>Entradas vs Saídas</h2><React.Suspense fallback={<p>Carregando gráfico…</p>}><IncomeExpenseChart data={chartData} /></React.Suspense></section>
     <section className="card"><h2>Contas bancárias</h2>{state.accounts.slice(0, 4).map(a => <p className="accountLine" key={a.id}><span>{a.name}</span><b>{BRL.format(a.balance || 0)}</b></p>)}<button className="ghost full" onClick={() => setScreen('Contas Bancárias')}>Gerenciar contas</button></section>
     <ListCard title="Ganhos recentes" items={state.transactions.filter(t => t.type === 'INCOME').slice(0, 4)} onMore={() => setScreen('Ganhos')} />
     <ListCard title="Despesas recentes" items={state.transactions.filter(t => t.type !== 'INCOME').slice(0, 4)} onMore={() => setScreen('Despesas Variáveis')} />
@@ -487,7 +535,7 @@ function PeriodSelector({ period, setPeriod }) {
 function Metric({ title, value, tone }) { return <section className={`metric ${tone}`}><span>{title}</span><strong>{value}</strong><small>Atualizado pelo saldo real das contas</small></section>; }
 
 function ListCard({ title, items, onMore }) {
-  return <section className="card span2"><h2>{title}</h2><table><tbody>{items.map(t => <tr key={t.id}><td>{t.description}</td><td>{t.category?.name}</td><td>{formatDate(t.date)}</td><td><b>{BRL.format(t.amount || 0)}</b></td><td>{t.type === 'VARIABLE_EXPENSE' ? t.paymentMethod : <Status status={getDisplayStatus(t)} />}</td></tr>)}</tbody></table><button className="ghost full" onClick={onMore}>Ver detalhes</button></section>;
+  return <section className="card span2"><h2>{title}</h2><div className="tableWrap"><table><tbody>{items.map(t => <tr key={t.id}><td>{t.description}</td><td>{t.category?.name}</td><td>{formatDate(t.date)}</td><td><b>{BRL.format(t.amount || 0)}</b></td><td>{t.type === 'VARIABLE_EXPENSE' ? t.paymentMethod : <Status status={getDisplayStatus(t)} />}</td></tr>)}</tbody></table></div><button className="ghost full" onClick={onMore}>Ver detalhes</button></section>;
 }
 
 function Status({ status }) {
@@ -499,8 +547,9 @@ function Progress({ label, percent, sub }) {
   return <div className="progress"><div><b>{label}</b><span>{sub}</span></div><em>{percent}%</em><div className="bar"><i style={{ width: `${percent}%` }} /></div></div>;
 }
 
-function TransactionScreen({ title, type, items, categories, accounts, reload }) {
-  const [open, setOpen] = useState(false);
+function TransactionScreen({ title, type, items, categories, accounts, reload, openRequest = 0, onConsumeOpen }) {
+  const [open, setOpen] = useState(openRequest > 0);
+  useEffect(() => { if (openRequest) { setOpen(true); onConsumeOpen?.(); } }, [openRequest]);
   const filteredCategories = categories.filter(c => c.type === type);
 
   async function remove(id) {
@@ -525,15 +574,24 @@ function TransactionScreen({ title, type, items, categories, accounts, reload })
 }
 
 function TransactionForm({ type, categories, accounts, reload, close }) {
-  const [form, setForm] = useState({ description: '', amount: '', date: new Date().toISOString().slice(0, 10), status: type === 'INCOME' ? 'RECEIVED' : type === 'FIXED_EXPENSE' ? 'PENDING' : 'PAID', categoryId: '', accountId: '', paymentMethod: 'Pix', reimbursable: false, reimbursementCompany: '', reimbursementEmail: '' });
+  const [form, setForm] = useState({ description: '', amount: '', date: localDate(), status: type === 'INCOME' ? 'RECEIVED' : type === 'FIXED_EXPENSE' ? 'PENDING' : 'PAID', categoryId: '', accountId: '', paymentMethod: 'Pix', reimbursable: false, reimbursementCompany: '', reimbursementEmail: '' });
   const [receiptFile, setReceiptFile] = useState(null);
+  const [savedId, setSavedId] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const requestId = useRef(crypto.randomUUID());
+  const [saveError, setSaveError] = useState('');
   const dateLabel = type === 'FIXED_EXPENSE' ? 'Data de vencimento' : 'Data';
 
   async function submit(e) {
     e.preventDefault();
+    if (savingRef.current) return;
     if (!form.accountId) return alert('Selecione a conta bancária deste lançamento.');
+    savingRef.current = true; setSaving(true); setSaveError('');
+    try {
     const finalStatus = type === 'INCOME' ? 'RECEIVED' : type === 'FIXED_EXPENSE' && form.status === 'PENDING' && isPastDate(form.date) ? 'OVERDUE' : type === 'VARIABLE_EXPENSE' ? 'PAID' : form.status;
-    const created = await api.post('/transactions', { ...form, type, status: finalStatus, dueDate: type === 'FIXED_EXPENSE' ? form.date : null, amount: Number(form.amount), reimbursable: type !== 'INCOME' && !!form.reimbursable, reimbursementStatus: form.reimbursable ? 'TO_SEND' : 'NOT_REIMBURSABLE', categoryId: Number(form.categoryId) || null, accountId: Number(form.accountId) || null });
+    const created = savedId ? { id: savedId } : await api.post('/transactions', { ...form, type, status: finalStatus, dueDate: type === 'FIXED_EXPENSE' ? form.date : null, amount: Number(form.amount), reimbursable: type !== 'INCOME' && !!form.reimbursable, reimbursementStatus: form.reimbursable ? 'TO_SEND' : 'NOT_REIMBURSABLE', categoryId: Number(form.categoryId) || null, accountId: Number(form.accountId) || null }, { headers: { 'Idempotency-Key': requestId.current } });
+    setSavedId(created.id);
     if (receiptFile && created?.id) {
       const data = new FormData();
       data.append('file', receiptFile);
@@ -541,31 +599,38 @@ function TransactionForm({ type, categories, accounts, reload, close }) {
     }
     close();
     reload();
+    } catch (error) { setSaveError(error.message); }
+    finally { savingRef.current = false; setSaving(false); }
   }
 
   return <form className="form" onSubmit={submit}>
-    <input placeholder="Descrição" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} required />
-    <input type="number" step="0.01" placeholder="Valor" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required />
+    {saveError && <p className="alert fullLine" role="alert">{saveError}</p>}
+    {savedId && <p className="successBox fullLine">Lançamento salvo. Você pode reenviar o comprovante ou concluir sem ele.</p>}
+    <fieldset className="transactionFields fullLine" disabled={saving || !!savedId}>
+    <input aria-label="Descrição" placeholder="Descrição" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} required />
+    <input type="number" min="0.01" step="0.01" inputMode="decimal" aria-label="Valor" placeholder="Valor" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required />
     <label className="field"><span>{dateLabel}</span><input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} required /></label>
-    <select value={form.categoryId} onChange={e => setForm({ ...form, categoryId: e.target.value })} required><option value="">Categoria</option>{categories.map(c => <option value={c.id} key={c.id}>{c.icon} {c.name}</option>)}</select>
-    <select value={form.accountId} onChange={e => setForm({ ...form, accountId: e.target.value })} required><option value="">Conta bancária</option>{accounts.map(a => <option value={a.id} key={a.id}>{a.name} — {BRL.format(a.balance || 0)}</option>)}</select>
+    <select aria-label="Categoria" value={form.categoryId} onChange={e => setForm({ ...form, categoryId: e.target.value })} required><option value="">Categoria</option>{categories.map(c => <option value={c.id} key={c.id}>{c.icon} {c.name}</option>)}</select>
+    <select aria-label="Conta bancária" value={form.accountId} onChange={e => setForm({ ...form, accountId: e.target.value })} required><option value="">Conta bancária</option>{accounts.map(a => <option value={a.id} key={a.id}>{a.name} — {BRL.format(a.balance || 0)}</option>)}</select>
     {type === 'FIXED_EXPENSE' && <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}><option value="PAID">Pago</option><option value="PENDING">Pendente</option><option value="OVERDUE">Em atraso</option></select>}
-    {type !== 'INCOME' && <select value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}>{paymentMethods.map(m => <option key={m} value={m}>{m}</option>)}</select>}
+    {type !== 'INCOME' && <select aria-label="Forma de pagamento" value={form.paymentMethod} onChange={e => setForm({ ...form, paymentMethod: e.target.value })}>{paymentMethods.map(m => <option key={m} value={m}>{m}</option>)}</select>}
     {type !== 'INCOME' && <label className="checkField"><input type="checkbox" checked={form.reimbursable} onChange={e => setForm({ ...form, reimbursable: e.target.checked })} /> Gasto reembolsável</label>}
     {type !== 'INCOME' && form.reimbursable && <input placeholder="Empresa responsável pelo reembolso" value={form.reimbursementCompany} onChange={e => setForm({ ...form, reimbursementCompany: e.target.value })} />}
     {type !== 'INCOME' && form.reimbursable && <input type="email" placeholder="E-mail para envio do reembolso" value={form.reimbursementEmail} onChange={e => setForm({ ...form, reimbursementEmail: e.target.value })} />}
+    </fieldset>
     {type !== 'INCOME' && <label className="field fullLine"><span>Comprovante opcional, PDF, PNG, JPG ou JPEG</span><input type="file" accept="application/pdf,image/png,image/jpeg" onChange={e => setReceiptFile(e.target.files?.[0] || null)} /></label>}
-    <button>Salvar</button>
+    <button disabled={saving}>{saving ? 'Salvando…' : savedId ? 'Reenviar comprovante' : 'Salvar'}</button>
+    {savedId && <button type="button" className="ghost" disabled={saving} onClick={() => { close(); reload(); }}>Concluir sem comprovante</button>}
   </form>;
 }
 
 function DataTable({ type, items, remove, updateStatus, updatePaymentMethod }) {
   const dateHeader = type === 'FIXED_EXPENSE' ? 'Data de vencimento' : 'Data';
   const actionHeader = type === 'VARIABLE_EXPENSE' ? 'Forma de pagamento' : type === 'FIXED_EXPENSE' ? 'Status / pagamento' : 'Status';
-  return <table><thead><tr><th>Descrição</th><th>Categoria</th><th>Conta</th><th>{dateHeader}</th><th>Valor</th><th>Comprovante</th><th>{actionHeader}</th><th></th></tr></thead><tbody>{items.map(t => {
+  return <div className="tableWrap"><table><thead><tr><th>Descrição</th><th>Categoria</th><th>Conta</th><th>{dateHeader}</th><th>Valor</th><th>Comprovante</th><th>{actionHeader}</th><th></th></tr></thead><tbody>{items.map(t => {
     const status = getDisplayStatus(t);
-    return <tr key={t.id}><td>{t.description} {t.reimbursable && <span className="miniBadge">reembolso</span>}</td><td>{t.category?.icon} {t.category?.name}</td><td>{t.account?.name || '-'}</td><td>{formatDate(t.dueDate || t.date)}</td><td><b>{BRL.format(t.amount || 0)}</b></td><td>{t.receiptFileName ? <a className="receiptLink" href={receiptUrl(t.receiptFileName)} target="_blank" rel="noreferrer">Ver comprovante</a> : '-'}</td><td>{t.type === 'INCOME' && <Status status="RECEIVED" />}{t.type === 'FIXED_EXPENSE' && <div className="stackedControls"><select className="statusSelect" value={status} onChange={e => updateStatus(t, e.target.value)}><option value="PAID">Pago</option><option value="PENDING">Pendente</option><option value="OVERDUE">Em atraso</option></select><select className="statusSelect" value={t.paymentMethod || 'Débito'} onChange={e => updatePaymentMethod(t, e.target.value)}>{paymentMethods.map(m => <option key={m} value={m}>{m}</option>)}</select></div>}{t.type === 'VARIABLE_EXPENSE' && <select className="statusSelect" value={t.paymentMethod || 'Pix'} onChange={e => updatePaymentMethod(t, e.target.value)}>{paymentMethods.map(m => <option key={m} value={m}>{m}</option>)}</select>}</td><td><button className="icon" onClick={() => remove(t.id)}><Trash2 size={15} /></button></td></tr>;
-  })}</tbody></table>;
+    return <tr key={t.id}><td>{t.description} {t.reimbursable && <span className="miniBadge">reembolso</span>}</td><td>{t.category?.icon} {t.category?.name}</td><td>{t.account?.name || '-'}</td><td>{formatDate(t.dueDate || t.date)}</td><td><b>{BRL.format(t.amount || 0)}</b></td><td>{t.receiptFileName ? <button className="receiptLink" onClick={() => openReceipt(t.receiptFileName)}>Ver comprovante</button> : '-'}</td><td>{t.type === 'INCOME' && <Status status="RECEIVED" />}{t.type === 'FIXED_EXPENSE' && <div className="stackedControls"><select className="statusSelect" value={status} onChange={e => updateStatus(t, e.target.value)}><option value="PAID">Pago</option><option value="PENDING">Pendente</option><option value="OVERDUE">Em atraso</option></select><select className="statusSelect" value={t.paymentMethod || 'Débito'} onChange={e => updatePaymentMethod(t, e.target.value)}>{paymentMethods.map(m => <option key={m} value={m}>{m}</option>)}</select></div>}{t.type === 'VARIABLE_EXPENSE' && <select className="statusSelect" value={t.paymentMethod || 'Pix'} onChange={e => updatePaymentMethod(t, e.target.value)}>{paymentMethods.map(m => <option key={m} value={m}>{m}</option>)}</select>}</td><td><button aria-label="Excluir registro" className="icon" onClick={() => remove(t.id)}><Trash2 size={15} /></button></td></tr>;
+  })}</tbody></table></div>;
 }
 
 function DebtScreen({ items, accounts, reload }) {
@@ -697,32 +762,44 @@ function CrudScreen({ title, path, fields, items, render, reload, headers, accou
     if (type === 'accountSelect') return <select key={name} value={form[name] || ''} onChange={e => setForm({ ...form, [name]: e.target.value })} required><option value="">{path === 'debts' ? 'Conta vinculada' : 'Conta de origem'}</option>{accounts.map(a => <option value={a.id} key={a.id}>{a.name} — {BRL.format(a.balance || 0)}</option>)}</select>;
     if (type === 'color') return <label className="field" key={name}><span>{label}</span><input type="color" value={form[name] || '#a3e635'} onChange={e => setForm({ ...form, [name]: e.target.value })} /></label>;
     return <input key={name} type={type || 'text'} step="0.01" placeholder={label} value={form[name] || ''} onChange={e => setForm({ ...form, [name]: e.target.value })} required={name === 'name'} />;
-  })}<button>Salvar</button></form>}<table>{headers && <thead><tr>{headers.map((header, i) => <th key={`${header}-${i}`}>{header}</th>)}</tr></thead>}<tbody>{items.map(render)}</tbody></table></section>;
+  })}<button>Salvar</button></form>}<div className="tableWrap"><table>{headers && <thead><tr>{headers.map((header, i) => <th key={`${header}-${i}`}>{header}</th>)}</tr></thead>}<tbody>{items.map(render)}</tbody></table></div></section>;
 }
 
 function Delete({ path, id, reload }) {
-  return <button className="icon" onClick={async () => { if (confirm('Excluir?')) { await api.delete(`/${path}/${id}`); reload(); } }}><Trash2 size={15} /></button>;
+  return <button aria-label="Excluir registro" className="icon" onClick={async () => { if (confirm('Excluir?')) { await api.delete(`/${path}/${id}`); reload(); } }}><Trash2 size={15} /></button>;
 }
 
-function CardInvoicesScreen({ transactions, accounts, period, setPeriod }) {
-  const creditExpenses = transactions.filter(t => t.type !== 'INCOME' && (t.paymentMethod || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === 'credito');
+function CardInvoicesScreen({ transactions, accounts, period, setPeriod, reload }) {
+  const [payingAccountId, setPayingAccountId] = useState(accounts[0]?.id || '');
+  const [paying, setPaying] = useState(false);
+  async function pay(cardAccountId) {
+    if (paying || !payingAccountId) return;
+    if (!confirm('Pagar as compras ainda não liquidadas deste período com a conta selecionada?')) return;
+    setPaying(true);
+    try { await api.post('/invoices/pay', { cardAccountId, payingAccountId: Number(payingAccountId), ...period }); await reload(); }
+    finally { setPaying(false); }
+  }
+  const creditExpenses = transactions.filter(t => t.type !== 'INCOME' && t.status === 'PAID' && (t.paymentMethod || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '') === 'credito');
   const current = creditExpenses.filter(t => isInPeriod(t.date, period));
   const usedByAccount = accounts.map(account => {
     const expenses = current.filter(t => t.account?.id === account.id);
     const used = expenses.reduce((sum, t) => sum + Number(t.amount || 0), 0);
     const available = Number(account.cardLimit || 0);
-    return { account, expenses, used, available, projectedLimit: available };
+    return { account, expenses, used, available, unpaid: expenses.filter(t => !t.cardSettled).reduce((sum, t) => sum + Number(t.amount), 0) };
   });
   const totalUsed = usedByAccount.reduce((sum, item) => sum + item.used, 0);
 
   return <section className="card page">
     <div className="sectionHead"><div><h2>Cartões / Faturas</h2><p className="muted">Controle dos gastos no crédito por conta/cartão. Compras no crédito reduzem o limite disponível, mas não reduzem o saldo bancário imediatamente.</p></div><strong>{BRL.format(totalUsed)} na fatura do período</strong></div>
     <PeriodSelector period={period} setPeriod={setPeriod} />
+    <label className="field"><span>Conta para pagar a fatura</span><select value={payingAccountId} onChange={e => setPayingAccountId(e.target.value)}>{accounts.map(a => <option value={a.id} key={a.id}>{a.name}</option>)}</select></label>
+    <p className="muted">Compras agrupadas por mês de calendário. A liquidação recompõe o limite e não conta a compra novamente nos totais de despesas.</p>
     <div className="invoiceGrid">
-      {usedByAccount.map(({ account, expenses, used, available }) => <section className="invoiceCard" key={account.id}>
+      {usedByAccount.map(({ account, expenses, used, available, unpaid }) => <section className="invoiceCard" key={account.id}>
         <div className="invoiceHead"><div><h3>{account.name}</h3><span>{expenses.length} compra(s) no crédito</span></div><b>{BRL.format(used)}</b></div>
+        <button disabled={!unpaid || paying || !payingAccountId} onClick={() => pay(account.id)}>{unpaid ? `Pagar ${BRL.format(unpaid)}` : 'Compras liquidadas'}</button>
         <Progress label="Limite usado no período" percent={available + used > 0 ? Math.round((used / (available + used)) * 100) : 0} sub={`Limite disponível atual: ${BRL.format(available)}`} />
-        <table><tbody>{expenses.length === 0 ? <tr><td className="muted">Nenhum gasto no crédito neste período.</td></tr> : expenses.map(t => <tr key={t.id}><td>{t.description}<br /><small>{t.category?.name || '-'}</small></td><td>{formatDate(t.date)}</td><td><b>{BRL.format(t.amount || 0)}</b></td></tr>)}</tbody></table>
+        <div className="tableWrap"><table><tbody>{expenses.length === 0 ? <tr><td className="muted">Nenhum gasto no crédito neste período.</td></tr> : expenses.map(t => <tr key={t.id}><td>{t.description}<br /><small>{t.category?.name || '-'}</small></td><td>{formatDate(t.date)}</td><td><b>{BRL.format(t.amount || 0)}</b></td></tr>)}</tbody></table></div>
       </section>)}
     </div>
   </section>;
@@ -733,15 +810,15 @@ function Reports({ state, period, setPeriod }) {
   const data = Object.keys(s.monthlyIncome || {}).map(k => ({ month: k, saldo: Number(s.monthlyIncome[k]) - Number((s.monthlyExpenses || {})[k] || 0), entradas: Number(s.monthlyIncome[k] || 0), saidas: Number((s.monthlyExpenses || {})[k] || 0) }));
   const monthTransactions = state.transactions.filter(t => isInPeriod(t.date, period));
   const income = monthTransactions.filter(t => t.type === 'INCOME').reduce((sum, t) => sum + Number(t.amount || 0), 0);
-  const expenses = monthTransactions.filter(t => t.type !== 'INCOME' && (t.type === 'VARIABLE_EXPENSE' || t.status === 'PAID')).reduce((sum, t) => sum + Number(t.amount || 0), 0);
+  const expenses = monthTransactions.filter(t => t.type !== 'INCOME' && !t.invoicePaymentKey && (t.type === 'VARIABLE_EXPENSE' || t.status === 'PAID')).reduce((sum, t) => sum + Number(t.amount || 0), 0);
   const reimbursableOpen = state.reimbursements.filter(r => r.reimbursementStatus !== 'REIMBURSED' && r.reimbursementStatus !== 'REJECTED').reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const categories = (s.categoryUsage || []).filter(c => Number(c.spent || 0) > 0);
 
   function exportCsv() {
     const rows = [['Data', 'Descrição', 'Tipo', 'Categoria', 'Conta', 'Forma/Status', 'Valor']];
     monthTransactions.forEach(t => rows.push([formatDate(t.date), t.description, categoryTypeLabel(t.type), t.category?.name || '', t.account?.name || '', t.type === 'VARIABLE_EXPENSE' ? t.paymentMethod : getDisplayStatus(t), Number(t.amount || 0).toFixed(2).replace('.', ',')]));
-    const csv = rows.map(row => row.map(value => `"${String(value).replaceAll('"', '""')}"`).join(';')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const csv = rows.map(row => row.map(csvCell).join(';')).join('\n');
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -759,8 +836,8 @@ function Reports({ state, period, setPeriod }) {
       <Metric title="Resultado do período" value={BRL.format(income - expenses)} tone={income - expenses >= 0 ? 'lime' : 'pink'} />
       <Metric title="Reembolsos em aberto" value={BRL.format(reimbursableOpen)} tone="cyan" />
     </div>
-    <section className="card innerCard"><h2>Evolução anual</h2><ResponsiveContainer width="100%" height={320}><LineChart data={data}><Line dataKey="saldo" strokeWidth={3} /><Line dataKey="entradas" strokeWidth={2} /><Line dataKey="saidas" strokeWidth={2} /><Tooltip formatter={v => BRL.format(v)} /></LineChart></ResponsiveContainer></section>
-    <section className="card innerCard"><h2>Gastos por categoria no período</h2><table><thead><tr><th>Categoria</th><th>Gasto</th><th>Limite</th><th>Uso</th></tr></thead><tbody>{categories.length === 0 ? <tr><td colSpan="4" className="muted">Nenhum gasto no período selecionado.</td></tr> : categories.map(c => <tr key={c.category}><td><span className="dot" style={{ background: c.color }} /> {c.category}</td><td><b>{BRL.format(c.spent || 0)}</b></td><td>{BRL.format(c.monthlyLimit || 0)}</td><td>{Math.round(c.percent || 0)}%</td></tr>)}</tbody></table></section>
+    <section className="card innerCard"><h2>Evolução anual</h2><React.Suspense fallback={<p>Carregando gráfico…</p>}><AnnualChart data={data} /></React.Suspense></section>
+    <section className="card innerCard"><h2>Gastos por categoria no período</h2><div className="tableWrap"><table><thead><tr><th>Categoria</th><th>Gasto</th><th>Limite</th><th>Uso</th></tr></thead><tbody>{categories.length === 0 ? <tr><td colSpan="4" className="muted">Nenhum gasto no período selecionado.</td></tr> : categories.map(c => <tr key={c.category}><td><span className="dot" style={{ background: c.color }} /> {c.category}</td><td><b>{BRL.format(c.spent || 0)}</b></td><td>{BRL.format(c.limitValue || 0)}</td><td>{Math.round(c.percent || 0)}%</td></tr>)}</tbody></table></div></section>
   </section>;
 }
 
@@ -779,3 +856,5 @@ function Root() {
 
 createRoot(document.getElementById('root')).render(<Root />);
 
+
+registerAppWorker();
