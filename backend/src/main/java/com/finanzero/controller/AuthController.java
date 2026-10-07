@@ -13,6 +13,18 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AuthController {
     private final AuthService service;
+    private final com.finanzero.service.CurrentUserService currentUser;
+    private final com.finanzero.repository.AppUserRepository users;
+
+    @PostMapping("/logout")
+    @org.springframework.transaction.annotation.Transactional
+    public AuthMessageResponse logout() {
+        var user = currentUser.lockUser();
+        user.setAuthToken(null);
+        user.setAuthTokenExpiresAt(null);
+        users.save(user);
+        return new AuthMessageResponse("Sessão encerrada.");
+    }
 
     @PostMapping("/register")
     public AuthResponse register(@RequestBody @Valid RegisterRequest request) {

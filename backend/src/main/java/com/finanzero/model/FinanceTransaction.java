@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 @Entity
+@Table(uniqueConstraints = @UniqueConstraint(columnNames = {"owner_id", "client_request_id"}))
 @Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class FinanceTransaction {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -35,6 +36,21 @@ public class FinanceTransaction {
     private LocalDate receivedAt;
     private String paymentMethod;
     private String notes;
+    private String clientRequestId;
+    @JsonIgnore
+    private String clientRequestHash;
+
+    @JsonIgnore
+    @OneToOne
+    @JoinColumn(unique = true)
+    private FinanceTransaction reimbursementSource;
+
+    private Long debtPaymentId;
+
+    @Builder.Default
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean cardSettled = false;
+    private String invoicePaymentKey;
 
     @Builder.Default
     @Column(nullable = false)

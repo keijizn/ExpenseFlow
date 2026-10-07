@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.util.List;
 
+@org.springframework.transaction.annotation.Transactional
 @RestController
 @RequestMapping("/api/categories")
 @RequiredArgsConstructor
@@ -28,14 +29,15 @@ public class CategoryController {
 
     @PostMapping
     public Category create(@RequestBody @Valid Category category) {
-        category.setOwner(currentUserService.requiredUser());
+        com.finanzero.service.FinancialValidation.newEntity(category.getId());
+        category.setOwner(currentUserService.lockUser());
         normalize(category);
         return repository.save(category);
     }
 
     @PutMapping("/{id}")
     public Category update(@PathVariable Long id, @RequestBody @Valid Category category) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         repository.findByIdAndOwner(id, owner).orElseThrow(() -> new IllegalArgumentException("Categoria não encontrada"));
         category.setId(id);
         category.setOwner(owner);
@@ -45,7 +47,7 @@ public class CategoryController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         Category category = repository.findByIdAndOwner(id, owner).orElseThrow(() -> new IllegalArgumentException("Categoria não encontrada"));
         repository.delete(category);
         return ResponseEntity.noContent().build();

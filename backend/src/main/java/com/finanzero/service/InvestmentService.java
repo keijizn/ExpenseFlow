@@ -24,9 +24,9 @@ public class InvestmentService {
 
     @Transactional
     public Investment create(InvestmentRequest request) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         WalletAccount account = accountRepository.findByIdAndOwner(request.accountId(), owner).orElseThrow(() -> new IllegalArgumentException("Conta de origem não encontrada"));
-        BigDecimal amount = nvl(request.amount());
+        BigDecimal amount = FinancialValidation.money(request.amount(), "Valor guardado", true);
         account.setBalance(nvl(account.getBalance()).subtract(amount));
         accountRepository.save(account);
         Investment inv = Investment.builder()
@@ -42,12 +42,12 @@ public class InvestmentService {
 
     @Transactional
     public Investment update(Long id, InvestmentRequest request) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         Investment inv = investmentRepository.findByIdAndOwner(id, owner).orElseThrow(() -> new IllegalArgumentException("Economia não encontrada"));
         WalletAccount oldAccount = inv.getAccount();
         WalletAccount newAccount = accountRepository.findByIdAndOwner(request.accountId(), owner).orElseThrow(() -> new IllegalArgumentException("Conta de origem não encontrada"));
         BigDecimal oldAmount = nvl(inv.getAmount());
-        BigDecimal newAmount = nvl(request.amount());
+        BigDecimal newAmount = FinancialValidation.money(request.amount(), "Valor guardado", true);
         if (oldAccount != null && oldAccount.getId().equals(newAccount.getId())) {
             BigDecimal diff = newAmount.subtract(oldAmount);
             oldAccount.setBalance(nvl(oldAccount.getBalance()).subtract(diff));
@@ -71,7 +71,7 @@ public class InvestmentService {
 
     @Transactional
     public void delete(Long id) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         Investment inv = investmentRepository.findByIdAndOwner(id, owner).orElseThrow(() -> new IllegalArgumentException("Economia não encontrada"));
         if (inv.getAccount() != null) {
             WalletAccount account = inv.getAccount();

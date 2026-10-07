@@ -13,6 +13,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
 
+@org.springframework.context.annotation.Profile("demo")
 @Component
 @RequiredArgsConstructor
 public class DataSeeder implements CommandLineRunner {

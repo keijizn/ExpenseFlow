@@ -27,10 +27,14 @@ public class Debt {
 
     @Builder.Default
     @Column(nullable = false, precision = 12, scale = 2)
+    @jakarta.validation.constraints.PositiveOrZero
+    @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
     private BigDecimal totalAmount = BigDecimal.ZERO;
 
     @Builder.Default
     @Column(nullable = false, precision = 12, scale = 2)
+    @jakarta.validation.constraints.PositiveOrZero
+    @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
     private BigDecimal paidAmount = BigDecimal.ZERO;
 
     @Builder.Default
@@ -39,9 +43,14 @@ public class Debt {
 
     @Builder.Default
     @Column(nullable = false, precision = 12, scale = 2)
+    @jakarta.validation.constraints.PositiveOrZero
+    @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
     private BigDecimal monthlyPayment = BigDecimal.ZERO;
 
     private LocalDate nextDueDate;
+
+    @Builder.Default
+    private BigDecimal installmentProgress = BigDecimal.ZERO;
 
     @Builder.Default
     @Enumerated(EnumType.STRING)

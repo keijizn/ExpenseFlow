@@ -21,12 +21,12 @@ public class InvestmentController {
     }
 
     @PostMapping
-    public Investment create(@RequestBody InvestmentRequest item) {
+    public Investment create(@RequestBody @jakarta.validation.Valid InvestmentRequest item) {
         return service.create(item);
     }
 
     @PutMapping("/{id}")
-    public Investment update(@PathVariable Long id, @RequestBody InvestmentRequest item) {
+    public Investment update(@PathVariable Long id, @RequestBody @jakarta.validation.Valid InvestmentRequest item) {
         return service.update(id, item);
     }
 

@@ -3,9 +3,9 @@ package com.finanzero.dto;
 import java.math.BigDecimal;
 
 public record InvestmentRequest(
-        String name,
+        @jakarta.validation.constraints.NotBlank String name,
         String investmentType,
-        BigDecimal amount,
+        @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.PositiveOrZero BigDecimal amount,
         BigDecimal profitabilityPercent,
-        Long accountId
+        @jakarta.validation.constraints.NotNull Long accountId
 ) {}

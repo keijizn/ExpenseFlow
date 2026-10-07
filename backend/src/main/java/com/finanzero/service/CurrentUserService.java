@@ -15,11 +15,21 @@ public class CurrentUserService {
     public AppUser requiredUser() {
         String token = tokenFromRequest();
         if (token == null || token.isBlank()) {
-            throw new IllegalArgumentException("Faça login para acessar o sistema.");
+            throw unauthorized();
         }
-        return users.findByAuthToken(token)
+        return users.findByAuthToken(TokenHash.of(token))
                 .filter(AppUser::isVerified)
-                .orElseThrow(() -> new IllegalArgumentException("Sessão inválida ou e-mail ainda não verificado."));
+                .filter(user -> user.getAuthTokenExpiresAt() != null && user.getAuthTokenExpiresAt().isAfter(java.time.LocalDateTime.now()))
+                .orElseThrow(this::unauthorized);
+    }
+
+    /** Call inside a transaction before reading any financial entity being mutated. */
+    public AppUser lockUser() {
+        return users.findLockedById(requiredUser().getId()).orElseThrow(this::unauthorized);
+    }
+
+    private org.springframework.web.server.ResponseStatusException unauthorized() {
+        return new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "Sessão inválida ou expirada. Faça login novamente.");
     }
 
     private String tokenFromRequest() {

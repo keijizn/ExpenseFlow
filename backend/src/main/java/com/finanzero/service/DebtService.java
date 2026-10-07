@@ -21,7 +21,10 @@ public class DebtService {
     private final DebtRepository debtRepository;
     private final WalletAccountRepository accountRepository;
     private final CurrentUserService currentUserService;
+    private final TransactionService transactions;
+    private final com.finanzero.repository.FinanceTransactionRepository transactionRepository;
 
+    @Transactional(readOnly = true)
     public List<Debt> list() {
         AppUser owner = currentUserService.requiredUser();
         List<Debt> debts = debtRepository.findByOwnerOrderByIdDesc(owner);
@@ -31,7 +34,9 @@ public class DebtService {
 
     @Transactional
     public Debt create(Debt debt) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
+        FinancialValidation.newEntity(debt.getId());
+        debt.setInstallmentProgress(BigDecimal.ZERO);
         debt.setOwner(owner);
         attachAccountIfPresent(debt, owner);
         normalize(debt);
@@ -40,8 +45,13 @@ public class DebtService {
 
     @Transactional
     public Debt update(Long id, Debt debt) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         Debt current = debtRepository.findByIdAndOwner(id, owner).orElseThrow(() -> new IllegalArgumentException("Dívida não encontrada"));
+        if (nvl(debt.getPaidAmount()).compareTo(nvl(current.getPaidAmount())) != 0)
+            FinancialValidation.conflict("Use Pagar parcela para alterar o valor pago.");
+        if (nvl(debt.getTotalAmount()).compareTo(nvl(current.getPaidAmount())) < 0)
+            throw new IllegalArgumentException("O total não pode ser menor que o valor pago.");
+        debt.setInstallmentProgress(current.getInstallmentProgress());
         debt.setId(current.getId());
         debt.setOwner(owner);
         attachAccountIfPresent(debt, owner);
@@ -51,16 +61,18 @@ public class DebtService {
 
     @Transactional
     public void delete(Long id) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         Debt debt = debtRepository.findByIdAndOwner(id, owner).orElseThrow(() -> new IllegalArgumentException("Dívida não encontrada"));
+        if (transactionRepository.existsByDebtPaymentIdAndOwner(id, owner))
+            FinancialValidation.conflict("Esta dívida possui pagamentos no histórico e não pode ser excluída.");
         debtRepository.delete(debt);
     }
 
     @Transactional
     public Debt pay(Long id, DebtPaymentRequest request) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         Debt debt = debtRepository.findByIdAndOwner(id, owner).orElseThrow(() -> new IllegalArgumentException("Dívida não encontrada"));
-        BigDecimal amount = request.amount() == null || request.amount().compareTo(BigDecimal.ZERO) <= 0 ? nvl(debt.getMonthlyPayment()) : request.amount();
+        BigDecimal amount = FinancialValidation.money(request.amount() == null ? nvl(debt.getMonthlyPayment()) : request.amount(), "Pagamento", false);
         BigDecimal remaining = nvl(debt.getTotalAmount()).subtract(nvl(debt.getPaidAmount())).max(BigDecimal.ZERO);
         if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
             debt.setStatus(PaymentStatus.PAID);
@@ -76,9 +88,22 @@ public class DebtService {
         }
         WalletAccount account = accountRepository.findByIdAndOwner(selectedAccountId, owner).orElseThrow(() -> new IllegalArgumentException("Conta não encontrada"));
         debt.setAccount(account);
-        account.setBalance(nvl(account.getBalance()).subtract(amount));
-        accountRepository.save(account);
+        var payment = transactions.createForUser(owner, new com.finanzero.dto.TransactionRequest(
+                "Parcela - " + debt.getName(), com.finanzero.model.TransactionType.VARIABLE_EXPENSE,
+                amount, LocalDate.now(), null, null, "Débito", "Pagamento da dívida " + debt.getId(),
+                false, null, null, com.finanzero.model.ReimbursementStatus.NOT_REIMBURSABLE,
+                PaymentStatus.PAID, null, account.getId()));
+        payment.setDebtPaymentId(debt.getId());
+        transactionRepository.save(payment);
         debt.setPaidAmount(nvl(debt.getPaidAmount()).add(amount));
+        BigDecimal progress = nvl(debt.getInstallmentProgress()).add(amount);
+        BigDecimal installment = nvl(debt.getMonthlyPayment());
+        if (installment.signum() > 0 && debt.getNextDueDate() != null) {
+            long completed = progress.divideToIntegralValue(installment).longValueExact();
+            debt.setNextDueDate(debt.getNextDueDate().plusMonths(completed));
+            progress = progress.remainder(installment);
+        }
+        debt.setInstallmentProgress(progress);
         normalize(debt);
         return debtRepository.save(debt);
     }
@@ -97,13 +122,17 @@ public class DebtService {
         if (debt.getTotalAmount() == null) debt.setTotalAmount(BigDecimal.ZERO);
         if (debt.getPaidAmount() == null) debt.setPaidAmount(BigDecimal.ZERO);
         if (debt.getMonthlyPayment() == null) debt.setMonthlyPayment(BigDecimal.ZERO);
+        FinancialValidation.money(debt.getTotalAmount(), "Total", false);
+        FinancialValidation.money(debt.getPaidAmount(), "Valor pago", true);
+        FinancialValidation.money(debt.getMonthlyPayment(), "Parcela", false);
+        if (debt.getPaidAmount().compareTo(debt.getTotalAmount()) > 0) throw new IllegalArgumentException("Valor pago maior que o total.");
         if (debt.getTotalInstallments() == null || debt.getTotalInstallments() <= 0) debt.setTotalInstallments(1);
         if (debt.getPaidAmount().compareTo(debt.getTotalAmount()) >= 0 && debt.getTotalAmount().compareTo(BigDecimal.ZERO) > 0) {
             debt.setPaidAmount(debt.getTotalAmount());
             debt.setStatus(PaymentStatus.PAID);
         } else if (debt.getNextDueDate() != null && debt.getNextDueDate().isBefore(LocalDate.now())) {
             debt.setStatus(PaymentStatus.OVERDUE);
-        } else if (debt.getStatus() == null || debt.getStatus() == PaymentStatus.PAID) {
+        } else {
             debt.setStatus(PaymentStatus.PENDING);
         }
     }
@@ -111,7 +140,6 @@ public class DebtService {
     private void normalizeStatusOnly(Debt debt) {
         if (debt.getStatus() != PaymentStatus.PAID && debt.getNextDueDate() != null && debt.getNextDueDate().isBefore(LocalDate.now())) debt.setStatus(PaymentStatus.OVERDUE);
         if (nvl(debt.getPaidAmount()).compareTo(nvl(debt.getTotalAmount())) >= 0 && nvl(debt.getTotalAmount()).compareTo(BigDecimal.ZERO) > 0) debt.setStatus(PaymentStatus.PAID);
-        debtRepository.save(debt);
     }
 
     private BigDecimal nvl(BigDecimal value) { return value == null ? BigDecimal.ZERO : value; }

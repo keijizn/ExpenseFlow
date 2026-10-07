@@ -1,0 +1,20 @@
+ALTER TABLE app_user ADD COLUMN auth_token_expires_at TIMESTAMP(6);
+-- Existing sessions have no trustworthy expiry and must authenticate again.
+UPDATE app_user SET auth_token = NULL;
+ALTER TABLE debt ADD COLUMN installment_progress NUMERIC(38,2) DEFAULT 0;
+ALTER TABLE finance_transaction ADD COLUMN client_request_id VARCHAR(255);
+ALTER TABLE finance_transaction ADD COLUMN client_request_hash VARCHAR(255);
+ALTER TABLE finance_transaction ADD COLUMN reimbursement_source_id BIGINT REFERENCES finance_transaction(id);
+ALTER TABLE finance_transaction ADD CONSTRAINT uq_reimbursement_source UNIQUE (reimbursement_source_id);
+ALTER TABLE finance_transaction ADD COLUMN debt_payment_id BIGINT;
+ALTER TABLE finance_transaction ADD COLUMN card_settled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE finance_transaction ADD COLUMN invoice_payment_key VARCHAR(255);
+ALTER TABLE finance_transaction ADD CONSTRAINT uq_owner_request UNIQUE (owner_id, client_request_id);
+CREATE INDEX idx_transactions_owner_date ON finance_transaction(owner_id, date);
+CREATE INDEX idx_transactions_owner_receipt ON finance_transaction(owner_id, receipt_file_name);
+CREATE INDEX idx_accounts_owner ON wallet_account(owner_id);
+CREATE INDEX idx_categories_owner ON category(owner_id);
+CREATE INDEX idx_debts_owner ON debt(owner_id);
+CREATE INDEX idx_investments_owner ON investment(owner_id);
+CREATE INDEX idx_goals_owner ON goal(owner_id);
+CREATE INDEX idx_users_token ON app_user(auth_token);

@@ -17,6 +17,8 @@ public class TransactionRequest {
     private TransactionType type;
 
     @NotNull
+    @jakarta.validation.constraints.Positive
+    @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
     private BigDecimal amount;
 
     @NotNull

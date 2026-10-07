@@ -22,10 +22,14 @@ public class Goal {
 
     @Builder.Default
     @Column(nullable = false, precision = 12, scale = 2)
+    @jakarta.validation.constraints.PositiveOrZero
+    @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
     private BigDecimal targetAmount = BigDecimal.ZERO;
 
     @Builder.Default
     @Column(nullable = false, precision = 12, scale = 2)
+    @jakarta.validation.constraints.PositiveOrZero
+    @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
     private BigDecimal currentAmount = BigDecimal.ZERO;
 
     @JsonIgnore

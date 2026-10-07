@@ -72,6 +72,7 @@ public class ReceiptStorageService {
         if (!ALLOWED_CONTENT_TYPES.contains(contentType)) {
             throw new IllegalArgumentException("Formato inválido. Envie PDF, PNG, JPG ou JPEG.");
         }
+        validateSignature(file, contentType);
 
         String originalName = StringUtils.cleanPath(file.getOriginalFilename() == null ? "comprovante" : file.getOriginalFilename());
         String extension = extensionFrom(originalName, contentType);
@@ -89,7 +90,14 @@ public class ReceiptStorageService {
                     ))
                     .build();
 
-            s3Client.putObject(request, RequestBody.fromInputStream(file.getInputStream(), file.getSize()));
+            try (var stream = file.getInputStream()) {
+                s3Client.putObject(request, RequestBody.fromInputStream(stream, file.getSize()));
+            }
+            if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+                org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCompletion(int status) { if (status == STATUS_ROLLED_BACK) deleteNow(storedName); }
+                });
+            }
             return new StoredReceipt(storedName, originalName, contentType);
         } catch (IOException e) {
             throw new IllegalStateException("Erro ao ler comprovante.", e);
@@ -120,14 +128,35 @@ public class ReceiptStorageService {
     }
 
     public void deleteQuietly(String fileName) {
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
+                @Override public void afterCommit() { deleteNow(fileName); }
+            });
+        } else deleteNow(fileName);
+    }
+
+    private void deleteNow(String fileName) {
         if (bucket.isBlank() || fileName == null || fileName.isBlank()) return;
         try {
             s3Client.deleteObject(DeleteObjectRequest.builder()
                     .bucket(bucket)
                     .key(objectKey(fileName))
                     .build());
-        } catch (Exception ignored) {
+        } catch (Exception error) {
+            org.slf4j.LoggerFactory.getLogger(ReceiptStorageService.class).warn("Não foi possível remover um comprovante do S3. A limpeza deverá ser repetida.");
         }
+    }
+
+    private void validateSignature(MultipartFile file, String contentType) {
+        try (var stream = file.getInputStream()) {
+            byte[] bytes = stream.readNBytes(8);
+            boolean valid = switch (contentType) {
+                case "application/pdf" -> bytes.length >= 5 && new String(bytes, 0, 5, java.nio.charset.StandardCharsets.US_ASCII).equals("%PDF-");
+                case "image/png" -> java.util.Arrays.equals(bytes, new byte[]{(byte)137,80,78,71,13,10,26,10});
+                default -> bytes.length >= 3 && bytes[0] == (byte)255 && bytes[1] == (byte)216 && bytes[2] == (byte)255;
+            };
+            if (!valid) throw new IllegalArgumentException("O conteúdo do comprovante não corresponde ao formato informado.");
+        } catch (IOException e) { throw new IllegalStateException("Não foi possível ler o comprovante.", e); }
     }
 
     private String objectKey(String fileName) {

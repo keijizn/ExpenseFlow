@@ -28,6 +28,7 @@ public class WalletAccount {
 
     @Builder.Default
     @Column(nullable = false, precision = 12, scale = 2)
+    @jakarta.validation.constraints.Digits(integer = 10, fraction = 2)
     private BigDecimal cardLimit = BigDecimal.ZERO;
 
     @JsonIgnore

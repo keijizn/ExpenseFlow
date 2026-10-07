@@ -16,13 +16,15 @@ import java.net.URI;
 @RequiredArgsConstructor
 public class ReceiptController {
     private final ReceiptStorageService storageService;
+    private final com.finanzero.service.CurrentUserService currentUser;
+    private final com.finanzero.repository.FinanceTransactionRepository transactions;
 
     @GetMapping("/{fileName}")
-    public ResponseEntity<Void> get(@PathVariable String fileName) {
+    public ResponseEntity<java.util.Map<String, String>> get(@PathVariable String fileName) {
+        transactions.findByReceiptFileNameAndOwner(fileName, currentUser.requiredUser())
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "Comprovante não encontrado."));
         String temporaryUrl = storageService.temporaryUrl(fileName);
-        return ResponseEntity.status(302)
-                .header(HttpHeaders.LOCATION, temporaryUrl)
-                .location(URI.create(temporaryUrl))
-                .build();
+        return ResponseEntity.ok().cacheControl(org.springframework.http.CacheControl.noStore())
+                .body(java.util.Map.of("url", temporaryUrl));
     }
 }

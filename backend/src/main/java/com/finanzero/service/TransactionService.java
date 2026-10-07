@@ -21,8 +21,9 @@ public class TransactionService {
     private final WalletAccountRepository accountRepository;
     private final CurrentUserService currentUserService;
     private final ReceiptStorageService receiptStorageService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
-    @Transactional
+    @Transactional(readOnly = true)
     public List<FinanceTransaction> list(TransactionType type, LocalDate start, LocalDate end) {
         AppUser owner = currentUserService.requiredUser();
         List<FinanceTransaction> result;
@@ -33,13 +34,34 @@ public class TransactionService {
         } else {
             result = repository.findByOwnerOrderByDateDesc(owner);
         }
-        result.forEach(this::markOverdueIfNeeded);
-        return result;
+        return result.stream().filter(t -> type == null || t.getType() == type)
+                .filter(t -> start == null || !t.getDate().isBefore(start))
+                .filter(t -> end == null || !t.getDate().isAfter(end)).toList();
     }
 
     @Transactional
     public FinanceTransaction create(TransactionRequest request) {
-        return createForUser(currentUserService.requiredUser(), request);
+        return createForUser(currentUserService.lockUser(), request);
+    }
+
+    @Transactional
+    public FinanceTransaction createIdempotent(TransactionRequest request, String key) {
+        AppUser owner = currentUserService.lockUser();
+        if (key == null || key.isBlank()) return createForUser(owner, request);
+        if (key.length() > 80) throw new IllegalArgumentException("Chave da operação inválida.");
+        String fingerprint;
+        try { fingerprint = TokenHash.of(objectMapper.writeValueAsString(request)); }
+        catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new IllegalArgumentException("Lançamento inválido."); }
+        var existing = repository.findByOwnerAndClientRequestId(owner, key);
+        if (existing.isPresent()) {
+            if (!fingerprint.equals(existing.get().getClientRequestHash()))
+                FinancialValidation.conflict("Este envio já foi salvo com outros dados. Atualize o histórico antes de lançar novamente.");
+            return existing.get();
+        }
+        FinanceTransaction transaction = createForUser(owner, request);
+        transaction.setClientRequestId(key);
+        transaction.setClientRequestHash(fingerprint);
+        return repository.save(transaction);
     }
 
     @Transactional
@@ -54,8 +76,9 @@ public class TransactionService {
 
     @Transactional
     public FinanceTransaction update(Long id, TransactionRequest request) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         FinanceTransaction entity = repository.findByIdAndOwner(id, owner).orElseThrow(() -> new IllegalArgumentException("Transação não encontrada"));
+        ensureEditable(entity);
         reverseBalanceImpact(entity);
         toEntity(entity, request, owner);
         normalize(entity);
@@ -66,14 +89,22 @@ public class TransactionService {
 
     @Transactional
     public void delete(Long id) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         FinanceTransaction entity = repository.findByIdAndOwner(id, owner).orElseThrow(() -> new IllegalArgumentException("Transação não encontrada"));
+        ensureEditable(entity);
         reverseBalanceImpact(entity);
         receiptStorageService.deleteQuietly(entity.getReceiptFileName());
         repository.delete(entity);
     }
 
     private FinanceTransaction toEntity(FinanceTransaction entity, TransactionRequest r, AppUser owner) {
+        FinancialValidation.money(r.amount(), "Valor", false);
+        if (r.type() == null || r.date() == null || r.accountId() == null || r.description() == null || r.description().isBlank())
+            throw new IllegalArgumentException("Informe descrição, tipo, data e conta.");
+        if (r.type() == TransactionType.FIXED_EXPENSE && r.status() != PaymentStatus.PENDING && r.status() != PaymentStatus.PAID && r.status() != PaymentStatus.OVERDUE)
+            throw new IllegalArgumentException("Status inválido para despesa fixa.");
+        if (r.paymentMethod() != null && !r.paymentMethod().isBlank() && !List.of("Pix", "Débito", "Crédito").contains(r.paymentMethod()))
+            throw new IllegalArgumentException("Forma de pagamento inválida.");
         entity.setDescription(r.description());
         entity.setType(r.type());
         entity.setAmount(nvl(r.amount()));
@@ -85,7 +116,7 @@ public class TransactionService {
         entity.setReimbursable(Boolean.TRUE.equals(r.reimbursable()));
         entity.setReimbursementCompany(r.reimbursementCompany());
         entity.setReimbursementEmail(r.reimbursementEmail());
-        entity.setReimbursementStatus(r.reimbursementStatus());
+        if (entity.getId() == null) entity.setReimbursementStatus(ReimbursementStatus.NOT_REIMBURSABLE);
         entity.setStatus(r.status());
         entity.setCategory(r.categoryId() == null ? null : categoryRepository.findByIdAndOwner(r.categoryId(), owner).orElseThrow(() -> new IllegalArgumentException("Categoria não encontrada")));
         entity.setAccount(r.accountId() == null ? null : accountRepository.findByIdAndOwner(r.accountId(), owner).orElseThrow(() -> new IllegalArgumentException("Conta não encontrada")));
@@ -99,7 +130,6 @@ public class TransactionService {
                 && entity.getDueDate() != null
                 && entity.getDueDate().isBefore(LocalDate.now())) {
             entity.setStatus(PaymentStatus.OVERDUE);
-            repository.save(entity);
         }
     }
 
@@ -140,6 +170,13 @@ public class TransactionService {
         }
         if (entity.getReimbursementStatus() == null || entity.getReimbursementStatus() == ReimbursementStatus.NOT_REIMBURSABLE) {
             entity.setReimbursementStatus(ReimbursementStatus.TO_SEND);
+        }
+    }
+
+    private void ensureEditable(FinanceTransaction entity) {
+        if (entity.getReimbursementStatus() == ReimbursementStatus.REIMBURSED || entity.getReimbursementStatus() == ReimbursementStatus.REJECTED
+                || entity.getReimbursementSource() != null || entity.getDebtPaymentId() != null || entity.isCardSettled() || entity.getInvoicePaymentKey() != null) {
+            FinancialValidation.conflict("Este lançamento já foi finalizado ou foi gerado por um pagamento e não pode ser alterado/excluído.");
         }
     }
 

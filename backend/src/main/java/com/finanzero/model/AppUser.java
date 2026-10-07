@@ -46,4 +46,5 @@ public class AppUser {
     private LocalDateTime passwordResetExpiresAt;
 
     private String authToken;
+    private LocalDateTime authTokenExpiresAt;
 }

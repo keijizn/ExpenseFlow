@@ -26,10 +26,12 @@ public class DashboardService {
     private final CurrentUserService currentUserService;
 
     public DashboardSummary summary(int month, int year) {
+        if (month < 1 || month > 12 || year < 1900 || year > 9999) throw new IllegalArgumentException("Período inválido.");
         AppUser owner = currentUserService.requiredUser();
         LocalDate start = LocalDate.of(year, month, 1);
         LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
-        List<FinanceTransaction> monthTransactions = transactions.findByOwnerAndDateBetweenOrderByDateDesc(owner, start, end);
+        List<FinanceTransaction> annual = transactions.findByOwnerAndDateBetweenOrderByDateDesc(owner, LocalDate.of(year, 1, 1), LocalDate.of(year, 12, 31));
+        List<FinanceTransaction> monthTransactions = annual.stream().filter(t -> t.getDate().getMonthValue() == month && t.getInvoicePaymentKey() == null).toList();
 
         BigDecimal income = sum(monthTransactions, TransactionType.INCOME);
         BigDecimal fixed = sumPaidFixed(monthTransactions);
@@ -58,7 +60,7 @@ public class DashboardService {
                 .sorted(Comparator.comparing(CategoryUsage::spent).reversed())
                 .toList();
 
-        return new DashboardSummary(income, fixed, variable, debtsOpen, invested, available, usage, monthlyByType(owner, year, TransactionType.INCOME), monthlyExpenses(owner, year));
+        return new DashboardSummary(income, fixed, variable, debtsOpen, invested, available, usage, monthlyTotals(annual, true), monthlyTotals(annual, false));
     }
 
     private BigDecimal sum(List<FinanceTransaction> list, TransactionType type) {
@@ -70,28 +72,18 @@ public class DashboardService {
     }
 
     private boolean countsAsExpense(FinanceTransaction t) {
+        if (t.getInvoicePaymentKey() != null) return false;
         if (t.getType() == TransactionType.VARIABLE_EXPENSE) return true;
         return t.getType() == TransactionType.FIXED_EXPENSE && t.getStatus() == PaymentStatus.PAID;
     }
 
-    private Map<String, BigDecimal> monthlyByType(AppUser owner, int year, TransactionType type) {
+    private Map<String, BigDecimal> monthlyTotals(List<FinanceTransaction> annual, boolean income) {
         Map<String, BigDecimal> map = new LinkedHashMap<>();
         for (int m = 1; m <= 12; m++) {
-            LocalDate start = LocalDate.of(year, m, 1);
-            LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
-            BigDecimal total = transactions.findByOwnerAndTypeAndDateBetweenOrderByDateDesc(owner, type, start, end)
-                    .stream().map(t -> nvl(t.getAmount())).reduce(BigDecimal.ZERO, BigDecimal::add);
-            map.put(Month.of(m).getDisplayName(TextStyle.SHORT, new Locale("pt", "BR")), total);
-        }
-        return map;
-    }
-
-    private Map<String, BigDecimal> monthlyExpenses(AppUser owner, int year) {
-        Map<String, BigDecimal> map = new LinkedHashMap<>();
-        for (int m = 1; m <= 12; m++) {
-            LocalDate start = LocalDate.of(year, m, 1);
-            LocalDate end = start.withDayOfMonth(start.lengthOfMonth());
-            BigDecimal total = transactions.findByOwnerAndDateBetweenOrderByDateDesc(owner, start, end).stream().filter(this::countsAsExpense).map(t -> nvl(t.getAmount())).reduce(BigDecimal.ZERO, BigDecimal::add);
+            int month = m;
+            BigDecimal total = annual.stream().filter(t -> t.getDate().getMonthValue() == month)
+                    .filter(t -> income ? t.getType() == TransactionType.INCOME : countsAsExpense(t))
+                    .map(t -> nvl(t.getAmount())).reduce(BigDecimal.ZERO, BigDecimal::add);
             map.put(Month.of(m).getDisplayName(TextStyle.SHORT, new Locale("pt", "BR")), total);
         }
         return map;

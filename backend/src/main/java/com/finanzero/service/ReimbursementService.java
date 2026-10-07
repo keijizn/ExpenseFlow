@@ -35,10 +35,12 @@ public class ReimbursementService {
 
     @Transactional
     public FinanceTransaction send(Long transactionId, SendReimbursementRequest request) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         FinanceTransaction expense = transactions.findByIdAndOwner(transactionId, owner)
                 .orElseThrow(() -> new IllegalArgumentException("Gasto reembolsável não encontrado."));
         if (!expense.isReimbursable()) throw new IllegalArgumentException("Este lançamento não está marcado como reembolsável.");
+
+        ensureOpen(expense);
 
         String destination = firstNonBlank(request == null ? null : request.email(), expense.getReimbursementEmail());
         if (isBlank(destination)) throw new IllegalArgumentException("Informe o e-mail de destino do reembolso.");
@@ -60,7 +62,7 @@ public class ReimbursementService {
 
     @Transactional
     public List<FinanceTransaction> sendBatch(BatchReimbursementSendRequest request) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         if (request == null || request.transactionIds() == null || request.transactionIds().isEmpty()) {
             throw new IllegalArgumentException("Selecione ao menos um reembolso para enviar.");
         }
@@ -70,6 +72,7 @@ public class ReimbursementService {
 
         List<FinanceTransaction> expenses = new ArrayList<>();
         for (Long id : request.transactionIds()) {
+            if (expenses.stream().anyMatch(item -> item.getId().equals(id))) continue;
             FinanceTransaction expense = transactions.findByIdAndOwner(id, owner)
                     .orElseThrow(() -> new IllegalArgumentException("Gasto reembolsável não encontrado: " + id));
             if (!expense.isReimbursable()) throw new IllegalArgumentException("O lançamento " + id + " não está marcado como reembolsável.");
@@ -99,11 +102,13 @@ public class ReimbursementService {
 
     @Transactional
     public FinanceTransaction markReceived(Long transactionId, ReimbursementReceiveRequest request) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         FinanceTransaction expense = transactions.findByIdAndOwner(transactionId, owner)
                 .orElseThrow(() -> new IllegalArgumentException("Gasto reembolsável não encontrado."));
         if (!expense.isReimbursable()) throw new IllegalArgumentException("Este lançamento não está marcado como reembolsável.");
-        if (expense.getReimbursementStatus() == ReimbursementStatus.REIMBURSED) return expense;
+        if (expense.getReimbursementStatus() == ReimbursementStatus.REIMBURSED || transactions.findByReimbursementSourceAndOwner(expense, owner).isPresent()) return expense;
+        ensureOpen(expense);
+        if (expense.getStatus() != PaymentStatus.PAID) throw new IllegalArgumentException("Pague a despesa antes de receber o reembolso.");
 
         WalletAccount account = request != null && request.accountId() != null
                 ? accounts.findByIdAndOwner(request.accountId(), owner).orElseThrow(() -> new IllegalArgumentException("Conta não encontrada."))
@@ -111,7 +116,7 @@ public class ReimbursementService {
         if (account == null) throw new IllegalArgumentException("Selecione a conta em que o reembolso entrou.");
 
         LocalDate receivedAt = request != null && request.receivedAt() != null ? request.receivedAt() : LocalDate.now();
-        transactionService.createForUser(owner, new TransactionRequest(
+        FinanceTransaction income = transactionService.createForUser(owner, new TransactionRequest(
                 "Reembolso - " + expense.getDescription(),
                 TransactionType.INCOME,
                 expense.getAmount(),
@@ -128,6 +133,8 @@ public class ReimbursementService {
                 null,
                 account.getId()
         ));
+        income.setReimbursementSource(expense);
+        transactions.save(income);
         expense.setReimbursementStatus(ReimbursementStatus.REIMBURSED);
         expense.setReimbursementReceivedAt(receivedAt);
         return transactions.save(expense);
@@ -135,12 +142,18 @@ public class ReimbursementService {
 
     @Transactional
     public FinanceTransaction reject(Long transactionId) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         FinanceTransaction expense = transactions.findByIdAndOwner(transactionId, owner)
                 .orElseThrow(() -> new IllegalArgumentException("Gasto reembolsável não encontrado."));
         if (!expense.isReimbursable()) throw new IllegalArgumentException("Este lançamento não está marcado como reembolsável.");
+        ensureOpen(expense);
         expense.setReimbursementStatus(ReimbursementStatus.REJECTED);
         return transactions.save(expense);
+    }
+
+    private void ensureOpen(FinanceTransaction expense) {
+        if (expense.getReimbursementStatus() == ReimbursementStatus.REIMBURSED || expense.getReimbursementStatus() == ReimbursementStatus.REJECTED)
+            FinancialValidation.conflict("Este reembolso já foi finalizado.");
     }
 
     private String buildEmailBody(AppUser owner, FinanceTransaction expense, String company) {

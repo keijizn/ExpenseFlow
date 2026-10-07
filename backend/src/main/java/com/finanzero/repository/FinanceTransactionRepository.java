@@ -11,6 +11,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface FinanceTransactionRepository extends JpaRepository<FinanceTransaction, Long> {
+    Optional<FinanceTransaction> findByOwnerAndClientRequestId(AppUser owner, String clientRequestId);
+    Optional<FinanceTransaction> findByReceiptFileNameAndOwner(String fileName, AppUser owner);
+    Optional<FinanceTransaction> findByReimbursementSourceAndOwner(FinanceTransaction source, AppUser owner);
+    boolean existsByDebtPaymentIdAndOwner(Long debtId, AppUser owner);
     List<FinanceTransaction> findByOwnerOrderByDateDesc(AppUser owner);
     Optional<FinanceTransaction> findByIdAndOwner(Long id, AppUser owner);
     List<FinanceTransaction> findByOwnerAndDateBetweenOrderByDateDesc(AppUser owner, LocalDate start, LocalDate end);

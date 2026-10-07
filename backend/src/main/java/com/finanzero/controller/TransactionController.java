@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.List;
 
+@org.springframework.transaction.annotation.Transactional
 @RestController
 @RequestMapping("/api/transactions")
 @RequiredArgsConstructor
@@ -40,12 +41,12 @@ public class TransactionController {
         return repository.findByIdAndOwner(id, owner).map(ResponseEntity::ok).orElse(ResponseEntity.notFound().build());
     }
 
-    @PostMapping public FinanceTransaction create(@RequestBody @Valid TransactionRequest request) { return service.create(request); }
+    @PostMapping public FinanceTransaction create(@RequestBody @Valid TransactionRequest request, @RequestHeader(value = "Idempotency-Key", required = false) String key) { return service.createIdempotent(request, key); }
     @PutMapping("/{id}") public FinanceTransaction update(@PathVariable Long id, @RequestBody @Valid TransactionRequest request) { return service.update(id, request); }
 
     @PostMapping("/{id}/receipt")
     public FinanceTransaction uploadReceipt(@PathVariable Long id, @RequestParam("file") MultipartFile file) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         FinanceTransaction transaction = repository.findByIdAndOwner(id, owner)
                 .orElseThrow(() -> new IllegalArgumentException("Transação não encontrada"));
         ReceiptStorageService.StoredReceipt receipt = receiptStorageService.store(file);
@@ -58,7 +59,7 @@ public class TransactionController {
 
     @DeleteMapping("/{id}/receipt")
     public FinanceTransaction deleteReceipt(@PathVariable Long id) {
-        AppUser owner = currentUserService.requiredUser();
+        AppUser owner = currentUserService.lockUser();
         FinanceTransaction transaction = repository.findByIdAndOwner(id, owner)
                 .orElseThrow(() -> new IllegalArgumentException("Transação não encontrada"));
         receiptStorageService.deleteQuietly(transaction.getReceiptFileName());

@@ -1,5 +1,7 @@
 # ExpenseFlow / FinanZero
 
+> Atualização de segurança e PWA: veja [ATUALIZACAO.md](ATUALIZACAO.md) para as correções, instalação no Android/iPhone, testes e o procedimento obrigatório de migração da base antiga antes do deploy. A documentação abaixo descreve também versões anteriores.
+
 Sistema fullstack de controle financeiro pessoal, com cadastro de usuários, autenticação, gerenciamento de contas, cartões, ganhos, gastos, dívidas, metas, economias, reembolsos por e-mail e upload de comprovantes em nuvem.
 
 O projeto foi desenvolvido com:
